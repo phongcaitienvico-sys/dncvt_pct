@@ -2,7 +2,7 @@
 
 Web app nhỏ thay cho Google Sheet "Đề nghị cấp vật tư": nhập vật tư vào một bảng chung, tick dòng, **Xuất phiếu PDF** (tự cấp số `YC<năm>-<số>`), in lại đúng số cũ, nhận hàng nhiều đợt.
 
-**Kiến trúc:** giao diện tĩnh trên **GitHub Pages** (`docs/`) → gọi **Google Apps Script** (`apps-script/`) → dữ liệu nằm trong **một Google Sheet** (mỗi bảng một tab). Cấp số phiếu chạy trong `LockService`, nên hai người bấm cùng lúc không bị trùng hay nhảy số. Phiếu PDF được dựng từ HTML khổ A4, người dùng bấm "In / Lưu PDF" trên trình duyệt.
+**Kiến trúc:** giao diện tĩnh trên **GitHub Pages** (`docs/`) → gọi **Google Apps Script** (`apps-script/`) → dữ liệu nằm trong **một Google Sheet** (mỗi bảng một tab). Cấp số phiếu chạy trong `LockService`, nên hai người bấm cùng lúc không bị trùng hay nhảy số. Phiếu PDF mặc định **A5 ngang** (210 × 148 mm), có thể chọn **A4 ngang** (297 × 210 mm) để các cột rộng hơn, hoặc khổ dọc. Người dùng bấm "In / Lưu PDF" trên trình duyệt; khổ giấy và số dòng mỗi trang được nhớ trên máy đang dùng.
 
 ## 1. Cài đặt lần đầu (≈ 20 phút)
 
@@ -63,6 +63,7 @@ python -m pytest tests_py
 - `pytest`: import.
 - `tools/concurrency_check.js`: bắn N lệnh xuất phiếu song song vào một URL. Chỉ chạy trên **bản Sheet thử**.
 - `tools/perf_check.js`: đo tốc độ bảng bằng Edge headless.
+- `node tools/layout_check.js`: kiểm tra bảng 8.000 dòng, kéo hẹp cột, nội dung dài và PDF A5/A4 ngang bằng dữ liệu giả; cần Chrome, `playwright` và `pdf-lib`. Ảnh và PDF kiểm tra nằm trong `out/layout-check/` (không đưa lên Git).
 
 ## 5. Sao lưu & bảo mật
 

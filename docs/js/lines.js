@@ -457,7 +457,7 @@ function linesPage() {
         renderVertical: 'virtual',
         placeholder: () => placeholderText,
         selectableRows: 'highlight', // chỉ chọn bằng ô tick, nhấp ô khác để sửa
-        columnDefaults: { headerTooltip: true, resizable: true },
+        columnDefaults: { headerTooltip: true, headerWordWrap: true, resizable: true, variableHeight: true },
         editTriggerEvent: 'click',
         rowFormatter,
         columns: columns(boot.catalogs),

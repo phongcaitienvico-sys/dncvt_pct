@@ -6,13 +6,13 @@
   <title>In phiếu</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:ital,wght@0,400;0,600;0,700;1,400&display=swap&subset=vietnamese" rel="stylesheet">
-  <link rel="stylesheet" href="css/app.css">
-  <link rel="stylesheet" href="css/print.css">
+  <link rel="stylesheet" href="css/app.css?v=20261023-layout2">
+  <link rel="stylesheet" href="css/print.css?v=20261023-layout2">
   <script src="https://cdn.jsdelivr.net/npm/nunjucks@3.2.4/browser/nunjucks.min.js"></script>
   <script src="js/config.js"></script>
   <script src="js/logic.js"></script>
   <script src="js/app.js"></script>
-  <script src="js/print_mapping.js"></script>
+  <script src="js/print_mapping.js?v=20261023-layout2"></script>
 </head>
 <body class="print">
   <div class="print-toolbar">
@@ -25,9 +25,11 @@
         <option value="a5p">A5 dọc</option>
       </select>
     </label>
-    <label>Số dòng mỗi trang
+    <span class="muted small">A5 ngang: 210 × 148 mm. Muốn cột rộng hơn, chọn A4 ngang: 297 × 210 mm.</span>
+    <label>Số dòng tối đa mỗi trang
       <select id="rpp"></select>
     </label>
+    <span class="muted small">Nội dung dài sẽ tự chia thêm trang để giữ đủ chữ và chữ ký.</span>
     <span class="muted small">Muốn lưu file: chọn máy in "Lưu dưới dạng PDF" / "Save as PDF". Bỏ tick "Đầu trang và chân trang" để phiếu sạch.</span>
     <span class="spacer"></span>
     <a href="lines.html">← Bảng vật tư</a>
@@ -182,19 +184,67 @@
       };
 
       const env = new nunjucks.Environment(null, { autoescape: true });
-      function render() {
+      let renderVersion = 0;
+      async function render() {
+        const version = ++renderVersion;
+        const printButton = document.getElementById('btn-print');
+        printButton.disabled = true;
         const n = Number(sel.value);
         const docs = PREPARE[tpl](n);
-        document.getElementById('out').innerHTML = env.renderString(src, {
-          docs, m, company: M.company, val, cell, fmt, codes, head: buildHead(m.columns || []),
-        });
+        const out = document.getElementById('out');
+        const draw = () => {
+          out.innerHTML = env.renderString(src, {
+            docs, m, company: M.company, val, cell, fmt, codes, head: buildHead(m.columns || []),
+          });
+        };
+        draw();
+        await document.fonts.ready;
+        await Promise.all(Array.from(out.querySelectorAll('img'), img => img.decode().catch(() => {})));
+        if (version !== renderVersion) return;
+        // Đo với cùng chiều rộng, font và khoảng cách như PDF. Dòng chỉ được
+        // chuyển sang trang sau; không tách trang chỉ có một dòng.
+        let split;
+        do {
+          split = false;
+          const sheets = Array.from(out.querySelectorAll('.sheet'));
+          let index = 0;
+          for (const doc of docs) {
+            for (let p = 0; p < doc.pages.length; p++) {
+              const sheet = sheets[index++];
+              const style = getComputedStyle(sheet);
+              const top = sheet.getBoundingClientRect().top;
+              const footer = sheet.querySelector('.pageno');
+              const footerSpace = footer ? footer.getBoundingClientRect().height + 12 : 0;
+              const limit = parseFloat(style.minHeight) - parseFloat(style.paddingBottom) - footerSpace - 2;
+              const flow = Array.from(sheet.children).filter(el => el !== footer);
+              const bottom = Math.max(...flow.map(el => el.getBoundingClientRect().bottom - top));
+              if (bottom <= limit || doc.pages[p].length < 2) continue;
+              const rows = Array.from(sheet.querySelectorAll('.items tbody tr'));
+              const afterTable = bottom - sheet.querySelector('.items').getBoundingClientRect().bottom + top;
+              const fitting = rows.filter(row => row.getBoundingClientRect().bottom - top + afterTable <= limit).length;
+              const cut = Math.max(1, Math.min(fitting, doc.pages[p].length - 1));
+              const overflow = doc.pages[p].splice(cut);
+              if (doc.pages[p + 1] && overflow.length + doc.pages[p + 1].length <= n) {
+                doc.pages[p + 1].unshift(...overflow);
+              } else {
+                doc.pages.splice(p + 1, 0, overflow);
+              }
+              split = true;
+              break;
+            }
+            if (split) break;
+          }
+          if (split) draw();
+        } while (split);
         msg.style.display = 'none';
+        printButton.disabled = false;
       }
-      sel.addEventListener('change', () => { store.set(rppKey(), sel.value); render(); });
-      paperSel.addEventListener('change', () => { store.set(paperKey, paperSel.value); fillRpp(); applyPaper(); render(); });
+      const renderError = (e) => { msg.style.display = ''; msg.textContent = 'Lỗi mẫu in: ' + e.message; };
+      sel.addEventListener('change', () => { store.set(rppKey(), sel.value); render().catch(renderError); });
+      paperSel.addEventListener('change', () => { store.set(paperKey, paperSel.value); fillRpp(); applyPaper(); render().catch(renderError); });
       document.getElementById('btn-print').addEventListener('click', () => window.print());
       document.title = (tpl === 'phieu_de_nghi' ? '' : tpl + ' ') + codes.join('_');
-      try { render(); } catch (e) { msg.textContent = 'Lỗi mẫu in: ' + e.message; }
+      try { await render(); } catch (e) { renderError(e); }
     })();
   </script>
 </body>

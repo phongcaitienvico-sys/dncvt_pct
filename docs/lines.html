@@ -7,13 +7,13 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;600;700&display=swap&subset=vietnamese" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/tabulator-tables@6.3.1/dist/css/tabulator_simple.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="css/app.css">
+  <link rel="stylesheet" href="css/app.css?v=20261023-layout2">
   <script src="https://cdn.jsdelivr.net/npm/tabulator-tables@6.3.1/dist/js/tabulator.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="js/config.js"></script>
   <script src="js/logic.js"></script>
   <script src="js/app.js"></script>
-  <script src="js/lines.js"></script>
+  <script src="js/lines.js?v=20261023-layout2"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js"></script>
   <style>
     #grid { background: #fff; }
@@ -24,7 +24,7 @@
   <header id="topbar"></header>
   <main>
     <!-- Bảng #grid nằm NGOÀI vùng Alpine để Alpine không phải quét hàng nghìn dòng mỗi lần cuộn -->
-    <div x-data="linesPage()" x-init="init()">
+    <div x-data="linesPage()">
     <div class="toolbar">
       <button class="primary" type="button" @click="issue()" title="Cấp số phiếu mới cho các dòng đã chọn, hoặc in lại nếu các dòng đã có số phiếu">Xuất phiếu PDF</button>
       <button type="button" @click="reprintPrompt()">In lại theo số phiếu…</button>

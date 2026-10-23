@@ -74,7 +74,31 @@
       };
       const dateLine = (iso) => {
         const p = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || '');
-        return p ? 'Ngày ' + p[3] + ' tháng ' + p[2] + ' năm ' + p[1] : 'Ngày …… tháng …… năm ……';
+        const s = p ? 'ngày ' + p[3] + ' tháng ' + p[2] + ' năm ' + p[1] : 'ngày …… tháng …… năm ……';
+        return M.company.place ? M.company.place + ', ' + s : s.charAt(0).toUpperCase() + s.slice(1);
+      };
+      // Tiêu đề bảng 1 hoặc 2 tầng: các cột liền nhau cùng `group` gộp thành 1 ô ở tầng trên
+      const buildHead = (columns) => {
+        if (!columns.some((c) => c.group)) return [columns.map((c) => ({ label: c.label, colspan: 1, rowspan: 1 }))];
+        const top = [];
+        const bottom = [];
+        columns.forEach((c, i) => {
+          if (!c.group) { top.push({ label: c.label, colspan: 1, rowspan: 2 }); return; }
+          if (i > 0 && columns[i - 1].group === c.group) top[top.length - 1].colspan++;
+          else top.push({ label: c.group, colspan: 1, rowspan: 1 });
+          bottom.push({ label: c.label, colspan: 1, rowspan: 1 });
+        });
+        return [top, bottom];
+      };
+      // Khối chữ ký: mặc định theo mapping, đổi theo đơn vị đề nghị (signature_rules)
+      const signaturesFor = (unit) => {
+        const sigs = (m.signatures || []).map((s) => Object.assign({}, s));
+        (m.signature_rules || []).forEach((r) => {
+          if (Logic.fold(unit).includes(Logic.fold(r.unit_contains)) && sigs[r.index]) {
+            sigs[r.index] = Object.assign(sigs[r.index], { title: r.title, name: r.name });
+          }
+        });
+        return sigs;
       };
       const withStt = (lines) => lines.map((l, i) => Object.assign({}, l, {
         _stt: i + 1, amount: l.unit_price === null || l.unit_price === undefined ? null : Logic.amount(l),
@@ -86,7 +110,10 @@
           return data.map((x) => {
             const header = Object.assign({}, x.request.header_json || {});
             header.project = [header.project_code, header.project_name].filter(Boolean).join(' — ');
-            return { request: x.request, header, pages: chunk(withStt(x.lines), n, m.min_rows), date_line: dateLine(header.request_date) };
+            return {
+              request: x.request, header, pages: chunk(withStt(x.lines), n, m.min_rows),
+              date_line: dateLine(header.request_date), signatures: signaturesFor(header.unit),
+            };
           });
         },
         don_dat_hang(n) {
@@ -123,7 +150,7 @@
         const n = Number(sel.value);
         const docs = PREPARE[tpl](n);
         document.getElementById('out').innerHTML = env.renderString(src, {
-          docs, m, company: M.company, val, cell, fmt, codes,
+          docs, m, company: M.company, val, cell, fmt, codes, head: buildHead(m.columns || []),
         });
         msg.style.display = 'none';
       }

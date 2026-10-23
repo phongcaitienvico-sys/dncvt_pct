@@ -125,10 +125,18 @@ test('khác hạng mục / nơi giao → cần xác nhận', () => {
   assert.equal(b.call('requests.issue', { line_ids: ids, confirm_mixed: true }, user).code, 'YC2026-295');
 });
 
-test('năm mới bắt đầu lại từ 1', () => {
+test('bỏ qua số đã có sẵn trong dữ liệu import (YC2026-295)', () => {
+  const { b, user } = fresh();
+  const headers = b.store.db.tabs.requests.headers;
+  b.store.db.tabs.requests.rows.push(headers.map((h) => ({ id: '99', code: 'YC2026-295', year: '2026', seq: '295' }[h] || '')));
+  const [l] = addLines(b, user, 1);
+  assert.equal(b.call('requests.issue', { line_ids: [l.id] }, user).code, 'YC2026-296');
+});
+
+test('năm mới bắt đầu lại từ 001', () => {
   const { b, user } = fresh('2027-01-02T08:00:00+07:00');
   const [l] = addLines(b, user, 1);
-  assert.equal(b.call('requests.issue', { line_ids: [l.id] }, user).code, 'YC2027-1');
+  assert.equal(b.call('requests.issue', { line_ids: [l.id] }, user).code, 'YC2027-001');
 });
 
 test('khóa tên + số lượng sau khi có phiếu; admin sửa được và có nhật ký', () => {

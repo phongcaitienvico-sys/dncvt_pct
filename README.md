@@ -24,10 +24,10 @@ Web app nhỏ thay cho Google Sheet "Đề nghị cấp vật tư": nhập vật
 ## 2. Import dữ liệu từ Sheet cũ
 
 ```bash
-python scripts/import_sheet.py samples/de_nghi_cu.xlsx --dry-run
+python scripts/import_sheet.py samples/QL_De_nghi_cap_vat_tu.xlsx --dry-run
 ```
 ```bash
-python scripts/import_sheet.py samples/de_nghi_cu.xlsx
+python scripts/import_sheet.py samples/QL_De_nghi_cap_vat_tu.xlsx
 ```
 - Lệnh đầu chỉ in **báo cáo đối soát**: tổng dòng, tổng thành tiền so với cột "Thành tiền", số phiếu theo tháng, số dòng lỗi.
 - Lệnh sau ghi `out/db_khoi_tao.xlsx`, `out/import_errors.xlsx` (dòng, cột, giá trị, lý do) và `out/import_report.txt`. Chạy lại bao nhiêu lần cũng không nhân đôi dữ liệu, file gốc chỉ được đọc.

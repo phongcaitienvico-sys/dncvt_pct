@@ -1,67 +1,74 @@
 {#
-  MẪU PHIẾU ĐỀ NGHỊ CẤP VẬT TƯ (cú pháp Jinja/Nunjucks) — MẪU TẠM, chờ Form1.
-  Biến có sẵn: docs (mỗi phần tử: request, header, pages = [[dòng]]), m (= PRINT_MAPPING.phieu_de_nghi),
-  company, val(obj, field, format), cell(line, column).
+  PHIẾU ĐỀ NGHỊ CẤP VẬT TƯ — theo tab Form1 của Sheet cũ (Mã hiệu BM.KHVT.04.01).
+  Biến có sẵn: docs (mỗi phần tử: request, header, pages = [[dòng]], date_line, signatures),
+  m (= PRINT_MAPPING.phieu_de_nghi), company, head (các hàng tiêu đề bảng đã tính colspan/rowspan),
+  val(obj, field, format), cell(line, column).
 #}
 <style>
-  .pdn .head { display: grid; grid-template-columns: 1fr auto; align-items: start; gap: 6mm; }
-  .pdn .company { font-weight: 700; text-transform: uppercase; }
-  .pdn .formcode { font-size: 9.5pt; border: 1px solid #000; padding: 2px 6px; white-space: nowrap; }
-  .pdn h1 { text-align: center; font-size: 16pt; margin: 6mm 0 1mm; letter-spacing: .5px; }
-  .pdn .so { text-align: center; margin-bottom: 4mm; }
-  .pdn .info { margin-bottom: 4mm; }
-  .pdn .info td { padding: 1.2mm 2mm 1.2mm 0; vertical-align: top; }
-  .pdn .info .lb { white-space: nowrap; width: 1%; }
-  .pdn .info .v { font-weight: 600; }
-  .pdn .cont { display: flex; justify-content: space-between; font-weight: 600; margin-bottom: 3mm; }
-  .pdn .date-line { text-align: right; font-style: italic; margin-top: 4mm; }
+  .pdn { font-family: 'Times New Roman', Times, serif; font-size: 9.5pt; }
+  .pdn table.top { width: 100%; border-collapse: collapse; margin-bottom: 0; }
+  .pdn table.top td { border: 1px solid #000; padding: 1.5mm 2mm; vertical-align: middle; }
+  .pdn .logo { width: 21.5%; text-align: center; }
+  .pdn .logo img { max-width: 100%; max-height: 20mm; }
+  .pdn .company, .pdn .t { text-align: center; font-weight: 700; font-size: 12.5pt; }
+  .pdn .t.big { font-size: 14pt; letter-spacing: .3px; }
+  .pdn .meta { width: 30%; font-size: 10.5pt; white-space: pre-line; }
+  .pdn .items { margin-top: -1px; font-size: 9pt; }
+  .pdn .items th { font-size: 8.5pt; background: #fff; overflow-wrap: normal; word-wrap: normal; padding: 1mm 0.5mm; }
+  .pdn .items td.center { font-size: 8.5pt; padding-left: .5mm; padding-right: .5mm; }
+  .pdn .items tr.num th { font-weight: 400; font-style: italic; height: 5mm; }
+  .pdn .items td { padding: 1.5mm 1.2mm; }
+  .pdn .cont { display: flex; justify-content: space-between; font-weight: 700; margin-bottom: 2mm; }
+  .pdn .date-line { text-align: right; font-weight: 700; font-style: italic; margin: 4mm 6mm 2mm 0; font-size: 11pt; }
+  .pdn .signs { font-size: 11pt; }
+  .pdn .signs .n { margin-top: 24mm; }
 </style>
 {% for d in docs %}
   {% for page in d.pages %}
   <section class="sheet pdn">
     {% if loop.first %}
-      <div class="head">
-        <div>
-          <div class="company">{{ company.name }}</div>
-          {% if company.address %}<div>{{ company.address }}</div>{% endif %}
-        </div>
-        {% if m.form_code %}<div class="formcode">{{ m.form_code }}</div>{% endif %}
-      </div>
-      <h1>{{ m.title }}</h1>
-      <div class="so">Số: <b>{{ d.request.code }}</b></div>
-      <table class="info">
-        {% for row in m.header | batch(2) %}
+      <table class="top">
         <tr>
-          {% for h in row %}
-            <td class="lb">{{ h.label }}:</td>
-            <td class="v">{{ val(d, h.field, h.format) }}</td>
-          {% endfor %}
+          <td class="logo" rowspan="3">{% if company.logo %}<img src="{{ company.logo }}" alt="">{% endif %}</td>
+          <td class="company">{{ company.name }}</td>
+          <td class="meta">{{ m.form_code }}
+{{ m.unit_label }} {{ d.header.unit }}</td>
         </tr>
-        {% endfor %}
+        <tr>
+          <td class="t">{{ m.title_lines[0] }}</td>
+          <td class="meta">Số: <b>{{ d.request.code }}</b></td>
+        </tr>
+        <tr>
+          <td class="t big">{{ m.title_lines[1] }}</td>
+          <td class="meta">Ngày: {{ val(d, 'header.request_date', 'date') }}</td>
+        </tr>
       </table>
     {% else %}
-      <div class="cont"><span>{{ m.title }} (tiếp theo)</span><span>Số: {{ d.request.code }}</span></div>
+      <div class="cont"><span>{{ m.title_lines | join(' ') }} (tiếp theo)</span><span>Số: {{ d.request.code }}</span></div>
     {% endif %}
 
     <table class="items">
       <colgroup>{% for c in m.columns %}<col style="{% if c.width %}width:{{ c.width }}{% endif %}">{% endfor %}</colgroup>
-      <thead><tr>{% for c in m.columns %}<th>{{ c.label }}</th>{% endfor %}</tr></thead>
+      <thead>
+        {% for hr in head %}
+        <tr>{% for h in hr %}<th colspan="{{ h.colspan }}" rowspan="{{ h.rowspan }}">{{ h.label }}</th>{% endfor %}</tr>
+        {% endfor %}
+        {% if m.number_row %}
+        <tr class="num">{% for c in m.columns %}<th>{{ loop.index }}</th>{% endfor %}</tr>
+        {% endif %}
+      </thead>
       <tbody>
         {% for l in page %}
-        <tr>{% for c in m.columns %}<td class="{{ c.align }}">{{ cell(l, c) }}</td>{% endfor %}</tr>
+        <tr>{% for c in m.columns %}<td class="{{ c.align }}">{{ cell(l, c) if c.field else '' }}</td>{% endfor %}</tr>
         {% endfor %}
       </tbody>
     </table>
 
     {% if loop.last %}
       <div class="date-line">{{ d.date_line }}</div>
-      <div class="signs" style="grid-template-columns: repeat({{ m.signatures.length }}, 1fr)">
-        {% for s in m.signatures %}
-          <div>
-            <div class="t">{{ s.title }}</div>
-            <div class="hint">(Ký, ghi rõ họ tên)</div>
-            <div class="n">{{ val(d, s.name_field) if s.name_field else '' }}</div>
-          </div>
+      <div class="signs" style="grid-template-columns: repeat({{ d.signatures.length }}, 1fr)">
+        {% for s in d.signatures %}
+          <div><div class="t">{{ s.title }}</div><div class="n">{{ s.name }}</div></div>
         {% endfor %}
       </div>
     {% endif %}

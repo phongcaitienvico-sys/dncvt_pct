@@ -8,41 +8,50 @@
  *   - cột bảng: 'stt' hoặc tên trường của dòng: name, uom, qty_requested, need_date, purpose, note,
  *               material_group, equipment_name, supplier, unit_price, amount, qty_on_hand, project_name…
  * format: 'date' (dd/mm/yyyy) | 'num' | 'money' | bỏ trống
+ * group: cột con cùng nhóm (vd. 'Số lượng' gồm 'Yêu cầu' + 'Tồn kho') → tiêu đề 2 tầng.
  */
 window.PRINT_MAPPING = {
   company: {
-    name: 'CÔNG TY ...',          // TODO: thay theo Form1
+    name: 'CÔNG TY TNHH THẮNG LỢI',
     address: '',
+    logo: 'img/logo.png',          // để '' nếu không in logo
+    place: 'Ninh Bình',            // "Ninh Bình, ngày … tháng … năm …"
   },
 
-  // ---------- Phiếu đề nghị cấp vật tư (MẪU TẠM — chờ Form1) ----------
+  // ---------- Phiếu đề nghị cấp vật tư — theo tab Form1 (BM.KHVT.04.01) ----------
   phieu_de_nghi: {
-    title: 'PHIẾU ĐỀ NGHỊ CẤP VẬT TƯ',
-    form_code: 'Mã hiệu: BM-…',   // TODO: mã hiệu biểu mẫu theo Form1
-    rows_per_page: 20,            // mặc định; trên trang in chọn được 10–40
+    title_lines: ['PHIẾU', 'ĐỀ NGHỊ CẤP VẬT TƯ'],
+    form_code: 'Mã hiệu: BM.KHVT.04.01',
+    unit_label: 'Đơn vị đề nghị:',
+    rows_per_page: 15,            // mặc định (vừa 1 trang A4 kể cả khi ô dài xuống 3 dòng); trên trang in chọn được 10–40
     min_rows: 0,                  // thêm dòng trống cho đủ số này ở trang cuối (0 = không thêm)
-    header: [
-      { label: 'Đơn vị đề xuất', field: 'header.unit' },
-      { label: 'Ngày đề nghị', field: 'header.request_date', format: 'date' },
-      { label: 'Hạng mục', field: 'header.project' },
-      { label: 'Địa điểm giao', field: 'header.delivery_location' },
-      { label: 'Người đề nghị', field: 'header.requester' },
-      { label: 'Ghi chú', field: 'header.note' },
-    ],
+    number_row: true,             // hàng đánh số cột 1, 2, 3… dưới tiêu đề như Form1
+    // Độ rộng theo tỉ lệ cột Excel của Form1 (A…N)
     columns: [
-      { label: 'STT', field: 'stt', width: '10mm', align: 'center' },
-      { label: 'Tên vật tư', field: 'name', width: '56mm' },
-      { label: 'ĐVT', field: 'uom', width: '13mm', align: 'center' },
-      { label: 'SL yêu cầu', field: 'qty_requested', format: 'num', width: '16mm', align: 'right' },
-      { label: 'Ngày cần có', field: 'need_date', format: 'date', width: '22mm', align: 'center' },
-      { label: 'Mục đích sử dụng', field: 'purpose' },
-      { label: 'Ghi chú', field: 'note', width: '24mm' },
+      { label: 'TT', field: 'stt', width: '6.5%', align: 'center' },
+      { label: 'Tên vật tư', field: 'name', width: '15%' },
+      { label: 'ĐVT', field: 'uom', width: '5.5%', align: 'center' },
+      { label: 'Nhóm VT', field: 'material_group', width: '5.5%', align: 'center' },
+      { label: 'Yêu cầu', group: 'Số lượng', field: 'qty_requested', format: 'num', width: '5.5%', align: 'right' },
+      { label: 'Tồn kho', group: 'Số lượng', field: 'qty_on_hand', format: 'num', width: '5.5%', align: 'right' },
+      { label: 'Ngày cần có', field: 'need_date', format: 'date', width: '9.5%', align: 'center' },
+      { label: 'Mã/Tên hạng mục', field: 'project_name', width: '11.5%' },
+      { label: 'Nhóm chi phí', field: '', width: '6%' },            // Sheet cũ để trống
+      { label: 'Mục đích sử dụng', field: 'purpose', width: '10%' },
+      { label: 'Vị trí giao', field: 'delivery_location', width: '6.5%' },
+      { label: 'Nhận và Ktra hàng', field: 'requester', width: '7%' },
+      { label: 'Người mua /NCC', field: 'supplier', width: '7%' },
+      { label: 'Yêu cầu chào giá', field: '', width: '6%' },        // ghi tay
     ],
     signatures: [
-      { title: 'Người đề nghị', name_field: 'header.requester' },
-      { title: 'Trưởng phòng' },
-      { title: 'KHVT' },
-      { title: 'Giám đốc' },
+      { title: 'Người lập phiếu', name: 'Nguyễn Văn Hiếu' },
+      { title: 'Người xem xét', name: 'Vũ Văn Trường' },
+      { title: 'T.P Thiết bị', name: 'Vũ Văn Trường' },
+      { title: 'Giám đốc duyệt', name: 'Phạm Danh Mạnh' },
+    ],
+    // Như công thức Form1: phiếu của P.Cải tiến thì ô thứ 3 là T.P Cải tiến (so khớp không dấu, không phân biệt hoa thường)
+    signature_rules: [
+      { unit_contains: 'cai tien', index: 2, title: 'T.P Cải tiến', name: 'Trần Việt Tiệp' },
     ],
   },
 

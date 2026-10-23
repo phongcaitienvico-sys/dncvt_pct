@@ -123,7 +123,7 @@
         <b>Import dữ liệu từ Google Sheet cũ</b> (làm một lần khi bắt đầu dùng app):
         <ol class="steps small">
           <li>Trên Sheet cũ: Tệp → Tải xuống → Microsoft Excel (.xlsx), chép vào thư mục <code>samples/</code>.</li>
-          <li>Chạy <code>python scripts/import_sheet.py samples/&lt;tên file&gt;.xlsx --dry-run</code> để xem báo cáo đối soát.</li>
+          <li>Chạy <code>python scripts/import_sheet.py samples/QL_De_nghi_cap_vat_tu.xlsx --dry-run</code> để xem báo cáo đối soát.</li>
           <li>Chạy lại không có <code>--dry-run</code> → được <code>out/db_khoi_tao.xlsx</code> và <code>out/import_errors.xlsx</code>.</li>
           <li>Tải <code>db_khoi_tao.xlsx</code> lên Google Drive → Mở bằng Google Trang tính → gắn Apps Script và chạy <code>setup()</code> (xem README).</li>
         </ol>

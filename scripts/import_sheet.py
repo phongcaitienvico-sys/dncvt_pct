@@ -66,7 +66,8 @@ def clean_text(v) -> str | None:
         v = int(v)
     if isinstance(v, (dt.datetime, dt.date)):
         v = v.strftime("%d/%m/%Y")
-    s = re.sub(r"\s+", " ", str(v)).strip()
+    # NFC: Sheet cũ lẫn 2 kiểu mã hóa dấu ("P.Cải tiến" dựng sẵn / tổ hợp) → gộp về một
+    s = re.sub(r"\s+", " ", unicodedata.normalize("NFC", str(v))).strip()
     return s or None
 
 
@@ -102,7 +103,8 @@ MONTHS_EN = {m: i for i, m in enumerate(["jan", "feb", "mar", "apr", "may", "jun
 def parse_date(v, ref: dt.date | None = None):
     """
     Trả (date|None, lỗi|None). Nhận: datetime, số serial Excel, '23/12/2021', '23-12-2021', '23.12.21',
-    '2021-12-23', và dạng thiếu năm '24-thg 12' / '24/12' (lấy năm theo ngày tham chiếu `ref`).
+    '2021-12-23', và dạng thiếu năm '24-thg 12' / '11-Thg3' / '24/12': chọn năm để ngày gần `ref` nhất
+    (ref = Ngày yêu cầu khi đọc ngày cần/ngày nhận; = Ngày cần có khi chính Ngày yêu cầu thiếu năm).
     """
     if is_empty(v):
         return None, None
@@ -132,11 +134,13 @@ def parse_date(v, ref: dt.date | None = None):
         if not month:
             return None, "Không hiểu ngày"
         if ref is None:
-            return None, "Ngày thiếu năm và không có Ngày yêu cầu để suy ra"
-        d, err = _mk(ref.year, month, int(m[1]))
-        if d and (d - ref).days < -180:  # vd. yêu cầu 12/2021, cần '05-thg 1' → 2022
-            d, err = _mk(ref.year + 1, month, int(m[1]))
-        return d, err
+            return None, "Ngày thiếu năm và không có ngày tham chiếu để suy ra"
+        # vd. yêu cầu 20/12/2021, cần '05-thg 1' → 05/01/2022 (gần hơn 05/01/2021)
+        options = [_mk(y, month, int(m[1])) for y in (ref.year - 1, ref.year, ref.year + 1)]
+        valid = [o for o in options if o[0]]
+        if not valid:
+            return options[1]
+        return min(valid, key=lambda o: abs((o[0] - ref).days))
     return None, "Không hiểu ngày"
 
 
@@ -160,7 +164,7 @@ def num_out(x):
 # ---------------------------------------------------------------- nhận diện cột
 
 DATA_HEADERS = {
-    "stt": ["stt"],
+    "stt": ["stt", "stt tu dong"],
     "unit": ["don vi de xuat"],
     "material_group": ["nhom vt", "nhom vat tu"],
     "name": ["ten vat tu"],
@@ -171,8 +175,8 @@ DATA_HEADERS = {
     "project_code": ["ma hang muc", "ma hm"],
     "project_name": ["hang muc"],
     "purpose": ["muc dich su dung", "muc dich"],
-    "delivery_location": ["dia diem giao", "noi giao"],
-    "supplier": ["nha cc nguoi cung cap", "nha cung cap nguoi cung cap", "nha cung cap", "nguoi cung cap", "nha cc"],
+    "delivery_location": ["dia diem giao", "dia diem giao hang", "noi giao"],
+    "supplier": ["nha cc nguoi mua", "nha cc nguoi cung cap", "nha cung cap nguoi cung cap", "nha cung cap", "nguoi cung cap", "nha cc"],
     "request_date": ["ngay yeu cau"],
     "received_date": ["ngay nhan"],
     "qty_received": ["so luong thuc nhan", "sl thuc nhan"],
@@ -183,28 +187,28 @@ DATA_HEADERS = {
     "days_left": ["so ngay con lai"],
     "unit_price": ["don gia"],
     "amount": ["thanh tien"],
-    "equipment_name": ["ten thiet bi"],
+    "equipment_name": ["ten thiet bi", "ten thiet bi hang muc"],
     "work_code": ["pl ma cv", "phan loai ma cv"],
     "week": ["tuan"],
     "month": ["thang"],
     "qty_missing": ["so luong con thieu", "sl con thieu"],
 }
-MULTI_COLUMNS = {"purpose"}  # "Mục đích sử dụng" có 2 cột → nối lại
+MULTI_COLUMNS = {"purpose"}  # "Mục đích sử dụng" + "Mục đích sử dụng2" (cột 2 = "Hạng mục-Mục đích", chỉ dùng khi cột 1 trống)
 
 SUPPLIER_HEADERS = {
-    "code": ["ma ncc", "ma nha cung cap", "ma", "ten viet tat", "viet tat"],
-    "name": ["ten ncc", "ten nha cung cap", "nha cung cap", "ten", "ten cong ty", "cong ty"],
-    "address": ["dia chi"],
-    "phone": ["sdt", "so dien thoai", "dien thoai", "dt"],
-    "email": ["email", "mail"],
-    "tax_code": ["mst", "ma so thue"],
-    "field": ["linh vuc", "nganh hang", "nganh", "mat hang"],
+    "code": ["mancc", "ma ncc", "ma nha cung cap", "ma", "ten viet tat", "viet tat"],
+    "name": ["nhacc", "ten ncc", "ten nha cung cap", "nha cung cap", "ten", "ten cong ty", "cong ty"],
+    "address": ["diachincc", "dia chi"],
+    "phone": ["sdtlh", "sdt", "so dien thoai", "dien thoai", "dt"],
+    "email": ["dcemail", "email", "mail"],
+    "tax_code": ["mskd", "mst", "ma so thue"],
+    "field": ["linhvucchuyenmon", "linh vuc", "nganh hang", "nganh", "mat hang"],
 }
 PROJECT_HEADERS = {
-    "project_code": ["ma da", "ma du an"],
-    "project_name": ["ten da", "ten du an", "du an"],
-    "item_code": ["ma hm", "ma hang muc"],
-    "item_name": ["ten hm", "ten hang muc", "hang muc"],
+    "project_code": ["ma da", "ma du an", "ma du an mdm"],
+    "project_name": ["ten da", "ten du an", "du an", "ten du an mdm"],
+    "item_code": ["ma hm", "ma hang muc", "ma hang muc mdm"],
+    "item_name": ["ten hm", "ten hang muc", "hang muc", "hang muc mdm"],
     "owner": ["phu trach", "nguoi phu trach", "chu tri", "pm"],
     "status": ["trang thai", "tinh trang"],
 }
@@ -263,18 +267,28 @@ class Importer:
         if ws is None:
             return []
         rows = read_rows(ws)
-        hi, mapping, _ = detect_header(rows, aliases, must_have)
+        hi, _, _ = detect_header(rows, aliases, must_have)
         if hi is None:
             self.notes.append(f'Tab "{ws.title}": không tìm thấy dòng tiêu đề, bỏ qua.')
             return []
-        self.notes.append(f'Tab "{ws.title}": nhận cột ' + ", ".join(f"{f}←{rows[hi][c[0]]}" for f, c in mapping.items()))
+        # Một tab có thể chứa nhiều bảng đặt cạnh nhau (vd. QL Ma DAHM): mỗi bảng bắt đầu bằng cột "STT"
+        header = rows[hi]
+        starts = [j for j, c in enumerate(header) if fold(c) == "stt"]
+        starts = sorted(set([0] + starts))
+        bounds = list(zip(starts, starts[1:] + [len(header)]))
         out, seen = [], set()
-        for r in rows[hi + 1:]:
-            rec = {f: clean_text(r[c[0]]) if c[0] < len(r) else None for f, c in mapping.items()}
-            key = tuple(rec.values())
-            if any(rec.values()) and key not in seen:
-                seen.add(key)
-                out.append(rec)
+        for a, b in bounds:
+            _, mapping, _ = detect_header([header[a:b]], aliases, must_have, scan=1)
+            if not mapping:
+                continue
+            self.notes.append(f'Tab "{ws.title}" (cột {a + 1}–{b}): nhận ' + ", ".join(f"{f}←{header[a + c[0]]}" for f, c in mapping.items()))
+            for r in rows[hi + 1:]:
+                seg = list(r[a:b])
+                rec = {f: clean_text(seg[c[0]]) if c[0] < len(seg) else None for f, c in mapping.items()}
+                key = tuple(rec.values())
+                if any(rec.values()) and key not in seen:
+                    seen.add(key)
+                    out.append(rec)
         return out
 
     def read_simple_list(self, ws):
@@ -282,12 +296,11 @@ class Importer:
             return []
         values, seen = [], set()
         for r in read_rows(ws):
-            for v in r:
+            for v in r:  # tab Nhóm VT: cột A là mã (C, E…), cột B là mô tả → lấy cả hai
                 t = clean_text(v)
                 if t and fold(t) not in ("nhom vt", "nhom vat tu", "stt") and not re.fullmatch(r"\d+", t) and t not in seen:
                     seen.add(t)
                     values.append(t)
-                    break  # chỉ lấy ô có chữ đầu tiên mỗi dòng
         return values
 
     # ---- chạy
@@ -298,7 +311,7 @@ class Importer:
             raise SystemExit('Không thấy tab "DATA base" trong file. Các tab có: ' + ", ".join(wb.sheetnames))
 
         suppliers = self.read_catalog(find_sheet(wb, "listnhacungcap", "list nha cung cap"), SUPPLIER_HEADERS, "name")
-        projects = self.read_catalog(find_sheet(wb, "QL Ma DA/HM", "QL Ma DA HM", "QL Mã DA/HM"), PROJECT_HEADERS, ("item_code", "project_code"))
+        projects = self.read_catalog(find_sheet(wb, "QL Ma DA/HM", "QL Ma DA HM", "QL Ma DAHM", "QL Mã DA/HM"), PROJECT_HEADERS, ("item_code", "project_code"))
         groups = self.read_simple_list(find_sheet(wb, "Nhóm VT", "Nhom VT"))
 
         rows = read_rows(ws)
@@ -312,7 +325,8 @@ class Importer:
         if missing:
             self.notes.append("CẢNH BÁO thiếu cột: " + ", ".join(missing))
 
-        supplier_keys = {fold(s.get("code")) for s in suppliers if s.get("code")} | {fold(s.get("name")) for s in suppliers if s.get("name")}
+        # Cột "Nhà cc/Người mua" là người/bộ phận mua (KHVT, Mr. Trường…), không phải mã NCC → không đối chiếu listnhacungcap
+        self.notes.append('Cột "Nhà cc/Người mua" giữ nguyên, không đối chiếu với listnhacungcap (là người mua, không phải mã NCC).')
         project_keys = {fold(p.get("item_code") or p.get("project_code")) for p in projects if p.get("item_code") or p.get("project_code")}
         group_keys = {fold(g) for g in groups}
 
@@ -334,7 +348,7 @@ class Importer:
                       "supplier", "requester", "equipment_name"):
                 line[f] = clean_text(cell(r, f))
             purposes = [clean_text(r[c]) for c in cols.get("purpose", []) if c < len(r)]
-            line["purpose"] = " - ".join(dict.fromkeys(p for p in purposes if p)) or None
+            line["purpose"] = next((p for p in purposes if p), None)
             work = clean_text(cell(r, "work_code"))
             line["note"] = f"PL mã CV: {work}" if work else None
 
@@ -350,7 +364,8 @@ class Importer:
                 if abs(calc - amt) >= 1:
                     self.err(i, col_name("amount"), cell(r, "amount"), f"Thành tiền trong Sheet khác SL × Đơn giá ({calc:,.0f})")
 
-            req_date, e = parse_date(cell(r, "request_date"))
+            need_hint, _ = parse_date(cell(r, "need_date"))  # để suy năm khi Ngày yêu cầu ghi kiểu '11-Thg3'
+            req_date, e = parse_date(cell(r, "request_date"), need_hint)
             if e:
                 self.err(i, col_name("request_date"), cell(r, "request_date"), e)
             line["request_date"] = req_date
@@ -363,13 +378,12 @@ class Importer:
             if e:
                 self.err(i, col_name("qty_received"), cell(r, "qty_received"), e)
             line["_qty_received"] = q
-            line["_signed_by"] = clean_text(cell(r, "signed_by"))
+            line["_signed_by"] = clean_text(cell(r, "signed_by"))  # thực tế ghi "Đủ"/"thiếu", không phải tên người
+            line["_sheet_status"] = clean_text(cell(r, "status"))
             line["_raw_code"] = clean_text(cell(r, "request_code"))
 
             if not line["name"]:
                 self.err(i, col_name("name"), None, "Thiếu tên vật tư")
-            if line["supplier"] and supplier_keys and fold(line["supplier"]) not in supplier_keys:
-                self.err(i, col_name("supplier"), line["supplier"], "Không có trong danh mục nhà cung cấp (listnhacungcap)")
             if line["project_code"] and project_keys and fold(line["project_code"]) not in project_keys:
                 self.err(i, col_name("project_code"), line["project_code"], "Không có trong danh mục QL Ma DA/HM")
             if line["material_group"] and group_keys and fold(line["material_group"]) not in group_keys:
@@ -422,7 +436,8 @@ class Importer:
             if p["_qty_received"] is not None and p["_qty_received"] != 0:
                 self.receipts.append({
                     "id": len(self.receipts) + 1, "line_id": idx, "received_date": iso(p["_received_date"]),
-                    "qty": num_out(p["_qty_received"]), "received_by": p["_signed_by"], "note": "import",
+                    "qty": num_out(p["_qty_received"]), "received_by": None,
+                    "note": "import" + (f"; Ký nhận: {p['_signed_by']}" if p["_signed_by"] else ""),
                     "created_at": created,
                 })
 
@@ -465,7 +480,12 @@ class Importer:
             return [{"id": i, "name": v} for i, v in enumerate(values, 1)]
 
         def distinct(field):
-            return sorted({l[field] for l in self.lines if l[field]}, key=fold)
+            # gộp "cái/Cái/CÁI " thành 1 mục danh mục (lấy cách viết phổ biến nhất); dữ liệu dòng giữ nguyên
+            counts = defaultdict(lambda: defaultdict(int))
+            for l in self.lines:
+                if l[field]:
+                    counts[fold(l[field])][l[field]] += 1
+            return sorted((max(v.items(), key=lambda kv: kv[1])[0] for v in counts.values()), key=fold)
         self.catalogs = {
             "suppliers": [dict(id=i, **{k: s.get(k) for k in ("code", "name", "address", "phone", "email", "tax_code", "field")}) for i, s in enumerate(suppliers, 1)],
             "project_items": [dict(id=i, **{k: p.get(k) for k in ("project_code", "project_name", "item_code", "item_name", "owner", "status")}) for i, p in enumerate(projects, 1)],
@@ -474,6 +494,23 @@ class Importer:
             "uoms": named(distinct("uom")),
         }
         self.total_sheet_amount = total_sheet_amount
+
+        # Đối chiếu cột "Trạng thái" của Sheet với quy tắc của app: ngày nhận − ngày cần có
+        cmp = defaultdict(int)
+        self.status_examples = []
+        for p in parsed:
+            st = fold(p["_sheet_status"])
+            if not p["_received_date"] or not p["need_date"]:
+                cmp["chưa nhận / thiếu ngày (Sheet để trống)" if not st else "chưa nhận nhưng Sheet có trạng thái"] += 1
+                continue
+            late = (p["_received_date"] - p["need_date"]).days
+            expect = f"Trễ {late} ngày" if late > 0 else "đúng hẹn"
+            ok = st == fold(expect)
+            partial = (p["_qty_received"] or 0) < (p["qty_requested"] or 0)
+            cmp[("khớp" if ok else "lệch") + (" (nhận chưa đủ SL)" if partial else " (nhận đủ SL)")] += 1
+            if not ok and len(self.status_examples) < 5:
+                self.status_examples.append(f"dòng {p['_row']}: Sheet '{p['_sheet_status']}' ≠ tính '{expect}'")
+        self.status_cmp = dict(cmp)
 
     # ---- báo cáo
     def report(self) -> str:
@@ -498,9 +535,13 @@ class Importer:
             out += ["", "Lỗi theo loại:"] + [f"  {n:6,}  {reason}" for reason, n in by_reason.items()]
         if self.requests:
             df = pd.DataFrame(self.requests)
-            df["Tháng"] = df["issued_at"].fillna("????-??").str[:7]
+            df["Tháng"] = [str(a)[:7] if a else f"{y}-?? (không có ngày yêu cầu)" for a, y in zip(df["issued_at"], df["year"])]
             monthly = df.groupby("Tháng").agg(phieu=("code", "count"), dong=("line_count", "sum"))
             out += ["", "Số phiếu theo tháng:", monthly.to_string()]
+        if getattr(self, "status_cmp", None):
+            out += ["", "Đối chiếu cột Trạng thái (Sheet) với cách tính 'ngày nhận − ngày cần':"]
+            out += [f"  {n:6,}  {k}" for k, n in sorted(self.status_cmp.items(), key=lambda x: -x[1])]
+            out += [f"         vd. {e}" for e in self.status_examples]
         if self.notes:
             out += ["", "Ghi chú:"] + [f"  - {n}" for n in self.notes]
         return "\n".join(out)

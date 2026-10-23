@@ -1,7 +1,9 @@
 /** Phiếu đề nghị: cấp số, in lại, danh sách. */
 
 function requestCode_(year, seq) {
-  return CONFIG.CODE_PREFIX + year + '-' + seq;
+  let s = String(seq);
+  while (s.length < CONFIG.CODE_PAD) s = '0' + s;
+  return CONFIG.CODE_PREFIX + year + '-' + s;
 }
 
 function distinct_(values) {

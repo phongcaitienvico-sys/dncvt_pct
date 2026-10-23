@@ -5,6 +5,7 @@ const CONFIG = {
   APP_NAME: 'Đề nghị cấp vật tư',
   TIMEZONE: 'Asia/Ho_Chi_Minh',
   CODE_PREFIX: 'YC',
+  CODE_PAD: 3, // YC2026-001 … YC2026-295 (giống Sheet cũ)
   // Số thứ tự đã dùng tới thời điểm chuyển sang app (YC2026-294 → phiếu tiếp theo là YC2026-295).
   INITIAL_SEQ: { 2026: 294 },
   TOKEN_TTL_HOURS: 12,

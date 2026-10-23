@@ -58,7 +58,7 @@
     return m ? m[2] + '/' + m[1] : '';
   };
 
-  /** Chuyển chuỗi số kiểu Việt/Anh ("1.234,5" / "1,234.5" / "12") → số; null nếu rỗng/sai. */
+  /** Chuyển chuỗi số kiểu Việt/Anh ("1.234,5" / "1,234.5" / "1.500" = 1500 / "2.5") → số; null nếu rỗng/sai. */
   L.parseNum = function (v) {
     if (v === null || v === undefined || v === '') return null;
     if (typeof v === 'number') return isFinite(v) ? v : null;
@@ -71,8 +71,8 @@
     } else if (lastComma >= 0) {
       // "1,5" là thập phân; "1,500" (đúng 3 số sau dấu phẩy) là phân cách nghìn
       s = /^\d{1,3}(,\d{3})+$/.test(s) ? s.replace(/,/g, '') : s.replace(',', '.');
-    } else if (/^\d{1,3}(\.\d{3}){2,}$/.test(s)) {
-      s = s.replace(/\./g, '');
+    } else if (/^[1-9]\d{0,2}(\.\d{3})+$/.test(s)) {
+      s = s.replace(/\./g, ''); // kiểu Việt Nam: "1.500" = 1500
     }
     const n = Number(s);
     return isFinite(n) ? n : null;

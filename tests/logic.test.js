@@ -47,6 +47,8 @@ test('parseNum kiểu Việt và kiểu Anh', () => {
   assert.equal(L.parseNum('1,500'), 1500);
   assert.equal(L.parseNum('1.500.000'), 1500000);
   assert.equal(L.parseNum('2.5'), 2.5);
+  assert.equal(L.parseNum('1.500'), 1500);
+  assert.equal(L.parseNum('0.500'), 0.5);
   assert.equal(L.parseNum(''), null);
   assert.equal(L.parseNum('x'), null);
 });

@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Theo hạng mục · Đề nghị cấp vật tư</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;600;700&display=swap&subset=vietnamese" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/tabulator-tables@6.3.1/dist/css/tabulator_simple.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="css/app.css">
+  <script src="https://cdn.jsdelivr.net/npm/tabulator-tables@6.3.1/dist/js/tabulator.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/logic.js"></script>
+  <script src="js/app.js"></script>
+  <script src="js/lines.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js"></script>
+  <style>
+    .stats { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+    .stat { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; min-width: 150px; }
+    .stat .v { font-size: 20px; font-weight: 700; }
+    .stat .l { color: var(--muted); font-size: 13px; }
+    .bar { height: 6px; background: #e6e9ee; border-radius: 3px; margin-top: 6px; overflow: hidden; }
+    .bar i { display: block; height: 100%; background: var(--ok); }
+    #grid { background: #fff; }
+  </style>
+</head>
+<body>
+  <header id="topbar"></header>
+  <main>
+    <div x-data="projectPage()" x-init="init()">
+    <h1>Vật tư theo hạng mục</h1>
+    <div class="toolbar">
+      <input list="project-list" placeholder="Gõ hoặc chọn hạng mục…" style="min-width:320px; flex:1; max-width:520px"
+             x-model="pick" @change="choose()" @keydown.enter.prevent="choose()">
+      <datalist id="project-list">
+        <template x-for="p in projects" :key="p.key"><option :value="p.label"></option></template>
+      </datalist>
+      <button type="button" @click="exportExcel()" :disabled="!current">Xuất Excel</button>
+    </div>
+
+    <template x-if="current">
+      <div class="stats">
+        <div class="stat"><div class="v" x-text="s.count"></div><div class="l">dòng vật tư · <span x-text="s.requests"></span> phiếu</div></div>
+        <div class="stat"><div class="v" x-text="Logic.fmtNum(s.amount, 0)"></div><div class="l">tổng tiền (đ)</div></div>
+        <div class="stat">
+          <div class="v" x-text="s.pctQty + '%'"></div><div class="l">đã nhận theo số lượng</div>
+          <div class="bar"><i :style="'width:' + s.pctQty + '%'"></i></div>
+        </div>
+        <div class="stat"><div class="v" x-text="s.done + '/' + s.count"></div><div class="l">dòng đã nhận đủ</div></div>
+        <div class="stat"><div class="v" x-text="s.overdue"></div><div class="l">dòng quá hạn</div></div>
+      </div>
+    </template>
+    </div>
+    <div id="grid"></div>
+  </main>
+  <script>
+    function projectPage() {
+      let table = null;
+      let all = [];
+      return {
+        projects: [], pick: '', current: null, today: Logic.todayIso(),
+        s: { count: 0, requests: 0, amount: 0, pctQty: 0, done: 0, overdue: 0 },
+
+        async init() {
+          const boot = await App.init();
+          this.today = boot.today || this.today;
+          table = new Tabulator('#grid', {
+            height: 'max(300px, calc(100vh - 290px))', layout: 'fitData', placeholder: 'Chọn hạng mục để xem.',
+            columns: [
+              { field: 'request_code', title: 'Số phiếu', width: 110, cssClass: 'code' },
+              { field: '_status', title: 'Trạng thái', width: 120, formatter: (c) => { const s = c.getRow().getData()._st; return '<span class="st ' + s.color + '">' + App.esc(s.label) + '</span>'; } },
+              { field: 'name', title: 'Tên vật tư', width: 240 },
+              { field: 'uom', title: 'ĐVT', width: 65 },
+              { field: 'qty_requested', title: 'SL yêu cầu', width: 90, hozAlign: 'right', formatter: (c) => Logic.fmtNum(c.getValue()) },
+              { field: 'qty_received', title: 'Đã nhận', width: 80, hozAlign: 'right', formatter: (c) => Logic.fmtNum(c.getValue()) },
+              { field: 'qty_missing', title: 'Còn thiếu', width: 85, hozAlign: 'right', formatter: (c) => Logic.fmtNum(c.getValue()) },
+              { field: 'need_date', title: 'Ngày cần', width: 100, formatter: (c) => Logic.fmtDate(c.getValue()) },
+              { field: 'unit_price', title: 'Đơn giá', width: 100, hozAlign: 'right', formatter: (c) => Logic.fmtNum(c.getValue()) },
+              { field: 'amount', title: 'Thành tiền', width: 115, hozAlign: 'right', formatter: (c) => Logic.fmtNum(c.getValue(), 0) },
+              { field: 'supplier', title: 'NCC', width: 110 },
+              { field: 'purpose', title: 'Mục đích', width: 200 },
+              { field: 'unit', title: 'Đơn vị', width: 130 },
+            ],
+          });
+          try {
+            all = App.rowsToObjects(await Api.call('lines.list')).map((l) => Object.assign(l, {
+              _st: Logic.computeStatus(l, this.today), amount: Logic.amount(l), qty_missing: Logic.qtyMissing(l),
+              _pkey: l.project_code || l.project_name || '',
+            }));
+          } catch (e) { App.toast(e.message, 'error'); return; }
+          const map = new Map();
+          boot.catalogs.project_items.forEach((p) => {
+            const code = p.item_code || p.project_code;
+            if (code) map.set(code, { key: code, label: code + ' — ' + (p.item_name || p.project_name || '') });
+          });
+          all.forEach((l) => {
+            if (l._pkey && !map.has(l._pkey)) map.set(l._pkey, { key: l._pkey, label: [l.project_code, l.project_name].filter(Boolean).join(' — ') });
+          });
+          this.projects = Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label, 'vi'));
+          const fromUrl = new URLSearchParams(location.search).get('hm');
+          if (fromUrl) { const p = this.projects.find((x) => x.key === fromUrl); if (p) { this.pick = p.label; this.choose(); } }
+        },
+        choose() {
+          const p = this.projects.find((x) => x.label === this.pick) || this.projects.find((x) => Logic.fold(x.label).includes(Logic.fold(this.pick)));
+          if (!p) return;
+          this.pick = p.label;
+          this.current = p;
+          history.replaceState(null, '', '?hm=' + encodeURIComponent(p.key));
+          const rows = all.filter((l) => l._pkey === p.key);
+          const req = rows.reduce((s, l) => s + (Number(l.qty_requested) || 0), 0);
+          const got = rows.reduce((s, l) => s + Math.min(Number(l.qty_received) || 0, Number(l.qty_requested) || 0), 0);
+          this.s = {
+            count: rows.length,
+            requests: new Set(rows.map((l) => l.request_code).filter(Boolean)).size,
+            amount: rows.reduce((s, l) => s + l.amount, 0),
+            pctQty: req ? Math.round((got / req) * 1000) / 10 : 0,
+            done: rows.filter((l) => Logic.isFullyReceived(l)).length,
+            overdue: rows.filter((l) => l._st.key === 'overdue').length,
+          };
+          table.setData(rows);
+        },
+        exportExcel() {
+          if (!this.current) return;
+          const name = 'hang-muc-' + this.current.key.replace(/[^\w-]+/g, '_') + '.xlsx';
+          App.exportExcel(name, [{ name: 'Hạng mục', rows: table.getData(), columns: EXPORT_COLUMNS }]);
+        },
+      };
+    }
+  </script>
+</body>
+</html>

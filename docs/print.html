@@ -76,7 +76,9 @@
         const p = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || '');
         return p ? 'Ngày ' + p[3] + ' tháng ' + p[2] + ' năm ' + p[1] : 'Ngày …… tháng …… năm ……';
       };
-      const withStt = (lines) => lines.map((l, i) => Object.assign({}, l, { _stt: i + 1, amount: Logic.amount(l) }));
+      const withStt = (lines) => lines.map((l, i) => Object.assign({}, l, {
+        _stt: i + 1, amount: l.unit_price === null || l.unit_price === undefined ? null : Logic.amount(l),
+      }));
 
       // Chuẩn bị dữ liệu cho từng mẫu
       const PREPARE = {

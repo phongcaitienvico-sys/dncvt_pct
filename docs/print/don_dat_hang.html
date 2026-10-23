@@ -1,0 +1,61 @@
+{#
+  ĐƠN ĐẶT HÀNG THEO NHÀ CUNG CẤP (phiếu nội bộ): gom các dòng của những phiếu đã chọn theo NCC,
+  mỗi NCC một đơn. Biến: docs (supplier, codes, pages, total, date_line), m, company, val, cell, fmt.
+#}
+<style>
+  .ddh .head { display: grid; grid-template-columns: 1fr auto; gap: 6mm; }
+  .ddh .company { font-weight: 700; text-transform: uppercase; }
+  .ddh h1 { text-align: center; font-size: 16pt; margin: 6mm 0 1mm; }
+  .ddh .sub { text-align: center; margin-bottom: 4mm; }
+  .ddh .info td { padding: 1mm 2mm 1mm 0; }
+  .ddh .info .lb { white-space: nowrap; width: 1%; }
+  .ddh .total td { font-weight: 700; }
+  .ddh .items { font-size: 10pt; }
+  .ddh .cont { display: flex; justify-content: space-between; font-weight: 600; margin-bottom: 3mm; }
+  .ddh .date-line { text-align: right; font-style: italic; margin-top: 4mm; }
+</style>
+{% for d in docs %}
+  {% for page in d.pages %}
+  <section class="sheet ddh">
+    {% if loop.first %}
+      <div class="head">
+        <div class="company">{{ company.name }}</div>
+        {% if m.form_code %}<div>{{ m.form_code }}</div>{% endif %}
+      </div>
+      <h1>{{ m.title }}</h1>
+      <div class="sub">Theo phiếu đề nghị: {{ d.codes }}</div>
+      <table class="info" style="margin-bottom:4mm">
+        <tr><td class="lb">Nhà cung cấp:</td><td><b>{{ d.supplier.name or d.supplier.code }}</b>{% if d.supplier.code and d.supplier.name %} ({{ d.supplier.code }}){% endif %}</td></tr>
+        {% if d.supplier.address %}<tr><td class="lb">Địa chỉ:</td><td>{{ d.supplier.address }}</td></tr>{% endif %}
+        {% if d.supplier.phone or d.supplier.email %}<tr><td class="lb">Liên hệ:</td><td>{{ d.supplier.phone }} {{ d.supplier.email }}</td></tr>{% endif %}
+        {% if d.supplier.tax_code %}<tr><td class="lb">MST:</td><td>{{ d.supplier.tax_code }}</td></tr>{% endif %}
+      </table>
+    {% else %}
+      <div class="cont"><span>{{ m.title }} (tiếp theo)</span><span>{{ d.supplier.name or d.supplier.code }}</span></div>
+    {% endif %}
+
+    <table class="items">
+      <colgroup>{% for c in m.columns %}<col style="{% if c.width %}width:{{ c.width }}{% endif %}">{% endfor %}</colgroup>
+      <thead><tr>{% for c in m.columns %}<th>{{ c.label }}</th>{% endfor %}</tr></thead>
+      <tbody>
+        {% for l in page %}
+        <tr>{% for c in m.columns %}<td class="{{ c.align }}">{{ cell(l, c) }}</td>{% endfor %}</tr>
+        {% endfor %}
+        {% if loop.last %}
+        <tr class="total"><td colspan="{{ m.columns.length - 2 }}" class="right">Tổng cộng</td><td class="right">{{ fmt(d.total, 'money') }}</td><td></td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+
+    {% if loop.last %}
+      <div class="date-line">{{ d.date_line }}</div>
+      <div class="signs" style="grid-template-columns: repeat({{ m.signatures.length }}, 1fr)">
+        {% for s in m.signatures %}
+          <div><div class="t">{{ s.title }}</div><div class="hint">(Ký, ghi rõ họ tên)</div><div class="n"></div></div>
+        {% endfor %}
+      </div>
+    {% endif %}
+    <div class="pageno">{{ d.supplier.name or d.supplier.code }} · Trang {{ loop.index }}/{{ loop.length }}</div>
+  </section>
+  {% endfor %}
+{% endfor %}

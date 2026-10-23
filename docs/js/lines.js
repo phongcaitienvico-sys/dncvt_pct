@@ -414,7 +414,7 @@ function linesPage() {
       });
       table = new Tabulator('#grid', {
         index: '_key',
-        height: '100%',
+        height: 'max(360px, calc(100vh - 190px))', // chiều cao cố định → bảng ảo hóa, chỉ vẽ dòng đang thấy
         layout: 'fitData',
         renderVertical: 'virtual',
         placeholder: () => placeholderText,

@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Quản trị · Đề nghị cấp vật tư</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;600;700&display=swap&subset=vietnamese" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/tabulator-tables@6.3.1/dist/css/tabulator_simple.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="css/app.css">
+  <script src="https://cdn.jsdelivr.net/npm/tabulator-tables@6.3.1/dist/js/tabulator.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/logic.js"></script>
+  <script src="js/app.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js"></script>
+  <style>
+    .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 12px; flex-wrap: wrap; }
+    .tabs button { border: none; border-bottom: 3px solid transparent; border-radius: 0; background: none; padding: 8px 14px; }
+    .tabs button.on { border-bottom-color: var(--primary); font-weight: 600; color: var(--primary); }
+    #cat-grid { background: #fff; }
+    .form-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: end; margin-bottom: 12px; }
+    .form-row label { display: grid; gap: 2px; font-size: 13px; font-weight: 600; }
+    .audit { max-height: calc(100vh - 250px); overflow: auto; }
+    .audit td { font-size: 13px; }
+    .steps li { margin-bottom: 6px; }
+    code { background: #eef1f5; padding: 1px 4px; border-radius: 3px; }
+  </style>
+</head>
+<body>
+  <header id="topbar"></header>
+  <main x-data="adminPage()" x-init="init()">
+    <h1>Quản trị</h1>
+    <div class="tabs">
+      <button type="button" :class="tab === 'cat' && 'on'" @click="show('cat')">Danh mục</button>
+      <button type="button" :class="tab === 'users' && 'on'" @click="show('users')">Người dùng</button>
+      <button type="button" :class="tab === 'audit' && 'on'" @click="show('audit')">Nhật ký</button>
+      <button type="button" :class="tab === 'data' && 'on'" @click="show('data')">Dữ liệu &amp; sao lưu</button>
+    </div>
+
+    <!-- Danh mục -->
+    <section x-show="tab === 'cat'">
+      <div class="toolbar">
+        <select x-model="catTable" @change="loadCatalog()">
+          <option value="suppliers">Nhà cung cấp</option>
+          <option value="project_items">Dự án / Hạng mục</option>
+          <option value="material_groups">Nhóm vật tư</option>
+          <option value="units">Đơn vị đề xuất</option>
+          <option value="uoms">Đơn vị tính</option>
+        </select>
+        <button type="button" @click="addCatalogRow()">+ Thêm</button>
+        <button type="button" class="danger" @click="deleteCatalogRows()">Xóa dòng đã chọn</button>
+        <span class="muted small">Nhấp ô để sửa, tự lưu. Sửa danh mục không làm đổi các phiếu đã xuất.</span>
+      </div>
+      <div id="cat-grid" x-ignore></div>
+    </section>
+
+    <!-- Người dùng -->
+    <section x-show="tab === 'users'">
+      <form class="form-row panel" @submit.prevent="addUser($el)">
+        <label>Tên đăng nhập <input name="username" required pattern="[A-Za-z0-9._\-]{3,40}" placeholder="vd: nam.nv"></label>
+        <label>Họ tên <input name="full_name" required></label>
+        <label>Vai trò <select name="role"><option value="user">Người dùng</option><option value="admin">Quản trị</option></select></label>
+        <label>Mật khẩu (≥ 8 ký tự) <input name="password" type="password" minlength="8" required autocomplete="new-password"></label>
+        <button class="primary" type="submit">Thêm người dùng</button>
+      </form>
+      <table class="simple">
+        <thead><tr><th>Tên đăng nhập</th><th>Họ tên</th><th>Vai trò</th><th>Trạng thái</th><th></th></tr></thead>
+        <tbody>
+          <template x-for="u in users" :key="u.id">
+            <tr>
+              <td x-text="u.username"></td>
+              <td><input :value="u.full_name" @change="saveUser(u, { full_name: $event.target.value })"></td>
+              <td>
+                <select :value="u.role" @change="saveUser(u, { role: $event.target.value })">
+                  <option value="user">Người dùng</option><option value="admin">Quản trị</option>
+                </select>
+              </td>
+              <td>
+                <label class="check"><input type="checkbox" :checked="u.active" @change="saveUser(u, { active: $event.target.checked })"> Hoạt động</label>
+              </td>
+              <td><button type="button" @click="resetPassword(u)">Đặt lại mật khẩu</button></td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- Nhật ký -->
+    <section x-show="tab === 'audit'">
+      <div class="toolbar">
+        <input type="search" placeholder="Tìm (người, số phiếu, id dòng, trường…)" x-model="auditQ" @keydown.enter="loadAudit()" style="width:320px">
+        <button type="button" @click="loadAudit()">Tìm</button>
+        <span class="muted small" x-text="audit.length + ' bản ghi gần nhất'"></span>
+      </div>
+      <div class="audit">
+        <table class="simple">
+          <thead><tr><th>Lúc</th><th>Người</th><th>Bảng</th><th>Dòng</th><th>Trường</th><th>Cũ</th><th>Mới</th></tr></thead>
+          <tbody>
+            <template x-for="a in audit" :key="a.id">
+              <tr>
+                <td x-text="Logic.fmtDate(a.at) + ' ' + String(a.at || '').slice(11, 16)"></td>
+                <td x-text="a.user"></td><td x-text="a.table"></td><td x-text="a.row_id"></td>
+                <td x-text="a.field"></td><td x-text="a.old"></td><td x-text="a.new"></td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Dữ liệu -->
+    <section x-show="tab === 'data'" class="panel" style="display:grid; gap:14px; max-width:820px">
+      <div class="toolbar">
+        <button class="primary" type="button" @click="backup()" :disabled="busy">Sao lưu ngay</button>
+        <button type="button" @click="exportAll()" :disabled="busy">Xuất toàn bộ ra Excel</button>
+        <span class="muted small" x-text="busyText"></span>
+      </div>
+      <div class="muted small">
+        Sao lưu = chép nguyên file Google Sheet vào thư mục Drive <code>NCVT_backup</code> (tự động mỗi đêm 23h, giữ 30 bản).
+      </div>
+      <div>
+        <b>Import dữ liệu từ Google Sheet cũ</b> (làm một lần khi bắt đầu dùng app):
+        <ol class="steps small">
+          <li>Trên Sheet cũ: Tệp → Tải xuống → Microsoft Excel (.xlsx), chép vào thư mục <code>samples/</code>.</li>
+          <li>Chạy <code>python scripts/import_sheet.py samples/&lt;tên file&gt;.xlsx --dry-run</code> để xem báo cáo đối soát.</li>
+          <li>Chạy lại không có <code>--dry-run</code> → được <code>out/db_khoi_tao.xlsx</code> và <code>out/import_errors.xlsx</code>.</li>
+          <li>Tải <code>db_khoi_tao.xlsx</code> lên Google Drive → Mở bằng Google Trang tính → gắn Apps Script và chạy <code>setup()</code> (xem README).</li>
+        </ol>
+      </div>
+    </section>
+  </main>
+  <script>
+    const CATALOG_COLUMNS = {
+      suppliers: [['code', 'Mã', 90], ['name', 'Tên nhà cung cấp', 220], ['address', 'Địa chỉ', 220], ['phone', 'Điện thoại', 110], ['email', 'Email', 160], ['tax_code', 'MST', 110], ['field', 'Lĩnh vực', 140]],
+      project_items: [['project_code', 'Mã dự án', 100], ['project_name', 'Tên dự án', 200], ['item_code', 'Mã hạng mục', 110], ['item_name', 'Tên hạng mục', 220], ['owner', 'Phụ trách', 130], ['status', 'Trạng thái', 110]],
+      material_groups: [['name', 'Nhóm vật tư', 300]],
+      units: [['name', 'Đơn vị đề xuất', 300]],
+      uoms: [['name', 'Đơn vị tính', 200]],
+    };
+
+    function adminPage() {
+      let grid = null;
+      const saveChains = {};
+      return {
+        tab: 'cat', catTable: 'suppliers', users: [], audit: [], auditQ: '', busy: false, busyText: '',
+
+        async init() {
+          await App.init({ admin: true });
+          grid = new Tabulator('#cat-grid', { height: 'max(300px, calc(100vh - 260px))', layout: 'fitData', selectableRows: 'highlight', index: '_k', placeholder: 'Chưa có dữ liệu', columns: [] });
+          grid.on('cellEdited', (cell) => this.saveCatalogRow(cell.getRow()));
+          await new Promise((r) => grid.on('tableBuilt', r));
+          this.loadCatalog();
+        },
+        show(t) {
+          this.tab = t;
+          if (t === 'users' && !this.users.length) this.loadUsers();
+          if (t === 'audit') this.loadAudit();
+          if (t === 'cat') setTimeout(() => grid.redraw(true));
+        },
+
+        async loadCatalog() {
+          const boot = await Api.call('bootstrap');
+          const cols = CATALOG_COLUMNS[this.catTable];
+          grid.setColumns([
+            { formatter: 'rowSelection', titleFormatter: 'rowSelection', hozAlign: 'center', headerSort: false, width: 36 },
+          ].concat(cols.map(([field, title, width]) => ({ field, title, width, editor: 'input' }))));
+          grid.setData(boot.catalogs[this.catTable].map((r) => Object.assign(r, { _k: 'i' + r.id })));
+        },
+        addCatalogRow() {
+          grid.addRow({ _k: 'n' + Date.now() }, true).then((row) => row.getCells()[1].edit());
+        },
+        saveCatalogRow(row) {
+          // Lưu tuần tự theo từng dòng để dòng mới không bị tạo 2 lần khi sửa nhanh nhiều ô
+          const key = row.getData()._k;
+          const table = this.catTable;
+          saveChains[key] = (saveChains[key] || Promise.resolve()).then(async () => {
+            const d = row.getData();
+            const payload = { id: d.id || undefined };
+            CATALOG_COLUMNS[table].forEach(([f]) => { payload[f] = d[f] === undefined ? null : d[f]; });
+            try {
+              const saved = await Api.call('catalog.save', { table, row: payload });
+              row.update({ id: saved.id });
+            } catch (e) { App.toast(e.message, 'error'); }
+          });
+        },
+        async deleteCatalogRows() {
+          const rows = grid.getSelectedRows();
+          if (!rows.length) { App.toast('Hãy chọn dòng cần xóa.', 'error'); return; }
+          if (!confirm('Xóa ' + rows.length + ' mục khỏi danh mục? (Các dòng vật tư/phiếu đã dùng giá trị này không bị đổi.)')) return;
+          const ids = rows.map((r) => r.getData().id).filter(Boolean);
+          try {
+            if (ids.length) await Api.call('catalog.delete', { table: this.catTable, ids });
+            rows.forEach((r) => r.delete());
+          } catch (e) { App.toast(e.message, 'error'); }
+        },
+
+        async loadUsers() {
+          try { this.users = await Api.call('users.list'); } catch (e) { App.toast(e.message, 'error'); }
+        },
+        async addUser(form) {
+          const fd = new FormData(form);
+          try {
+            await Api.call('users.save', { user: Object.fromEntries(fd.entries()) });
+            form.reset();
+            App.toast('Đã thêm người dùng.', 'ok');
+            this.loadUsers();
+          } catch (e) { App.toast(e.message, 'error'); }
+        },
+        async saveUser(u, patch) {
+          try {
+            const saved = await Api.call('users.save', { user: Object.assign({}, u, patch) });
+            Object.assign(u, saved);
+            App.toast('Đã lưu.', 'ok');
+          } catch (e) { App.toast(e.message, 'error'); this.loadUsers(); }
+        },
+        async resetPassword(u) {
+          const pw = prompt('Mật khẩu mới cho ' + u.username + ' (≥ 8 ký tự):');
+          if (!pw) return;
+          this.saveUser(u, { password: pw });
+        },
+
+        async loadAudit() {
+          try { this.audit = await Api.call('audit.list', { q: this.auditQ, limit: 500 }); } catch (e) { App.toast(e.message, 'error'); }
+        },
+
+        async backup() {
+          this.busy = true; this.busyText = 'Đang sao lưu…';
+          try { const r = await Api.call('backup.run'); this.busyText = 'Đã sao lưu: ' + r.name; } catch (e) { this.busyText = ''; App.toast(e.message, 'error'); }
+          this.busy = false;
+        },
+        async exportAll() {
+          this.busy = true; this.busyText = 'Đang lấy dữ liệu…';
+          try {
+            const data = await Api.call('export.all');
+            const sheets = Object.keys(data).map((name) => {
+              const rows = data[name];
+              const fields = rows.length ? Object.keys(rows[0]) : ['id'];
+              return {
+                name, rows,
+                columns: fields.map((f) => [f, f, (r) => (r[f] && typeof r[f] === 'object' ? JSON.stringify(r[f]) : r[f])]),
+              };
+            });
+            App.exportExcel('ncvt-toan-bo-' + Logic.todayIso() + '.xlsx', sheets);
+            this.busyText = 'Đã xuất file Excel.';
+          } catch (e) { this.busyText = ''; App.toast(e.message, 'error'); }
+          this.busy = false;
+        },
+      };
+    }
+  </script>
+</body>
+</html>

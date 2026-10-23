@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Nhận hàng · Đề nghị cấp vật tư</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;600;700&display=swap&subset=vietnamese" rel="stylesheet">
+  <link rel="stylesheet" href="css/app.css">
+  <script src="js/config.js"></script>
+  <script src="js/logic.js"></script>
+  <script src="js/app.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js"></script>
+  <style>
+    .cards { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); }
+    .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; display: grid; gap: 8px; }
+    .card .top { display: flex; justify-content: space-between; gap: 8px; align-items: start; }
+    .card .name { font-weight: 700; font-size: 16px; }
+    .card .meta { color: var(--muted); font-size: 13px; }
+    .card .qty { display: flex; gap: 14px; flex-wrap: wrap; font-size: 14px; }
+    .card .qty b { font-size: 16px; }
+    .card form { display: grid; grid-template-columns: 90px 1fr auto; gap: 6px; }
+    .card form input { padding: 8px; font-size: 16px; }
+    .card form .note { grid-column: 1 / 3; }
+    .card form button { padding: 8px 14px; justify-content: center; }
+    .hist { font-size: 13px; border-top: 1px dashed var(--line); padding-top: 6px; }
+    .hist div { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; }
+    @media (max-width: 700px) {
+      .cards { grid-template-columns: 1fr; }
+      .card form { grid-template-columns: 1fr 1fr; }
+      .card form .note { grid-column: 1 / -1; }
+      .card form button.primary { grid-column: 1 / -1; order: 3; }
+      .card form .link { order: 4; justify-self: start; }
+    }
+  </style>
+</head>
+<body>
+  <header id="topbar"></header>
+  <main x-data="receivePage()" x-init="init()">
+    <h1>Nhận hàng</h1>
+    <div class="filters">
+      <input type="search" placeholder="Tìm tên vật tư, số phiếu, hạng mục…" x-model.debounce.250ms="q" style="flex:1; min-width:200px">
+      <select x-model="status">
+        <option value="open">Tất cả chưa nhận đủ</option>
+        <option value="overdue">Quá hạn</option>
+        <option value="soon">Sắp đến hạn (≤ 2 ngày)</option>
+        <option value="done">Đã nhận đủ (xem lại)</option>
+      </select>
+      <label class="check"><input type="checkbox" x-model="onlyIssued"> Chỉ dòng đã có số phiếu</label>
+    </div>
+    <div class="muted small" style="margin-bottom:8px" x-text="loading ? 'Đang tải…' : (filtered().length + ' dòng')"></div>
+
+    <div class="cards">
+      <template x-for="l in filtered().slice(0, limit)" :key="l.id">
+        <div class="card">
+          <div class="top">
+            <div>
+              <div class="name" x-text="l.name"></div>
+              <div class="meta">
+                <span class="code" x-text="l.request_code || 'Chưa có phiếu'"></span>
+                <span x-show="l.project_code || l.project_name" x-text="' · ' + [l.project_code, l.project_name].filter(Boolean).join(' — ')"></span>
+                <span x-show="l.supplier" x-text="' · NCC: ' + l.supplier"></span>
+              </div>
+            </div>
+            <span class="st" :class="l._st.color" x-text="l._st.label"></span>
+          </div>
+          <div class="qty">
+            <span>Yêu cầu <b x-text="Logic.fmtNum(l.qty_requested)"></b> <span x-text="l.uom || ''"></span></span>
+            <span>Đã nhận <b x-text="Logic.fmtNum(l.qty_received)"></b></span>
+            <span>Còn thiếu <b x-text="Logic.fmtNum(Logic.qtyMissing(l))"></b></span>
+            <span class="muted" x-text="'Cần: ' + (Logic.fmtDate(l.need_date) || '—')"></span>
+          </div>
+          <form @submit.prevent="receive(l, $el)">
+            <input name="qty" type="text" inputmode="decimal" :value="Logic.qtyMissing(l) || ''" aria-label="Số lượng nhận" required>
+            <input name="date" type="date" :value="today" aria-label="Ngày nhận" required>
+            <button class="primary" type="submit" :disabled="busy === l.id" x-text="busy === l.id ? '…' : 'Nhận'"></button>
+            <input name="note" class="note" type="text" placeholder="Ghi chú (không bắt buộc)">
+            <button type="button" class="link" @click="toggleHistory(l)" x-text="l._hist ? 'Ẩn lịch sử' : 'Lịch sử nhận'"></button>
+          </form>
+          <div class="hist" x-show="l._hist">
+            <template x-if="l._hist && !l._hist.length"><div class="muted">Chưa nhận lần nào.</div></template>
+            <template x-for="r in (l._hist || [])" :key="r.id">
+              <div>
+                <span x-text="Logic.fmtDate(r.received_date) + ': ' + Logic.fmtNum(r.qty) + (r.note ? ' — ' + r.note : '')"></span>
+                <span>
+                  <span class="muted" x-text="r.received_by"></span>
+                  <button type="button" class="link danger" x-show="isAdmin" @click="removeReceipt(l, r)">Xóa</button>
+                </span>
+              </div>
+            </template>
+          </div>
+        </div>
+      </template>
+    </div>
+    <div style="margin-top:12px" x-show="filtered().length > limit">
+      <button type="button" @click="limit += 60">Xem thêm</button>
+    </div>
+  </main>
+  <script>
+    function receivePage() {
+      return {
+        lines: [], q: '', status: 'open', onlyIssued: true, limit: 60, loading: true, busy: null,
+        today: Logic.todayIso(), isAdmin: false,
+
+        async init() {
+          const boot = await App.init();
+          this.today = boot.today || this.today;
+          this.isAdmin = App.user.role === 'admin';
+          try {
+            const data = await Api.call('lines.list');
+            this.lines = App.rowsToObjects(data).map((l) => this.prep(l));
+          } catch (e) { App.toast(e.message, 'error'); }
+          this.loading = false;
+        },
+        prep(l) {
+          l._st = Logic.computeStatus(l, this.today);
+          l._s = Logic.fold([l.name, l.request_code, l.project_code, l.project_name, l.supplier, l.purpose].join(' '));
+          l._hist = l._hist || null;
+          return l;
+        },
+        filtered() {
+          const words = Logic.fold(this.q).split(/\s+/).filter(Boolean);
+          return this.lines
+            .filter((l) => (!this.onlyIssued || l.request_code) && Logic.matchStatus(l._st, this.status)
+              && words.every((w) => l._s.includes(w)))
+            .sort((a, b) => String(a.need_date || '9999').localeCompare(String(b.need_date || '9999')) || a.id - b.id);
+        },
+        async receive(l, form) {
+          const qty = Logic.parseNum(form.qty.value);
+          if (!(qty > 0)) { App.toast('Nhập số lượng nhận lớn hơn 0.', 'error'); return; }
+          if (qty > Logic.qtyMissing(l) && !confirm('Số nhận (' + qty + ') lớn hơn số còn thiếu (' + Logic.qtyMissing(l) + '). Vẫn ghi nhận?')) return;
+          this.busy = l.id;
+          try {
+            const res = await Api.call('receipts.add', { line_id: l.id, qty, received_date: form.date.value, note: form.note.value });
+            Object.assign(l, res.line);
+            this.prep(l);
+            if (l._hist) l._hist.push(res.receipt);
+            form.note.value = '';
+            App.toast('Đã nhận ' + Logic.fmtNum(qty) + ' ' + (l.uom || '') + ' — ' + l.name + (Logic.isFullyReceived(l) ? ' (đủ)' : ''), 'ok');
+          } catch (e) { App.toast(e.message, 'error'); }
+          this.busy = null;
+        },
+        async toggleHistory(l) {
+          if (l._hist) { l._hist = null; return; }
+          try { l._hist = await Api.call('receipts.list', { line_id: l.id }); } catch (e) { App.toast(e.message, 'error'); }
+        },
+        async removeReceipt(l, r) {
+          if (!confirm('Xóa lần nhận ' + Logic.fmtNum(r.qty) + ' ngày ' + Logic.fmtDate(r.received_date) + '?')) return;
+          try {
+            const res = await Api.call('receipts.delete', { id: r.id });
+            Object.assign(l, res.line);
+            l._hist = l._hist.filter((x) => x.id !== r.id);
+            this.prep(l);
+          } catch (e) { App.toast(e.message, 'error'); }
+        },
+      };
+    }
+  </script>
+</body>
+</html>

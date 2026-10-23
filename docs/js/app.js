@@ -67,10 +67,12 @@
       opts = opts || {};
       App.user = Api.user();
       if (!Api.token() || !App.user) { App.goLogin(); return new Promise(() => {}); }
-      if (opts.admin && App.user.role !== 'admin') { location.href = 'lines.html'; return new Promise(() => {}); }
       App.renderNav();
       App.boot = await Api.call('bootstrap');
-      App.user = App.boot.user;
+      App.user = App.boot.user; // quyền mới nhất từ máy chủ
+      Api.saveLogin({ token: Api.token(), user: App.user });
+      App.renderNav();
+      if (opts.admin && App.user.role !== 'admin') { location.href = 'lines.html'; return new Promise(() => {}); }
       return App.boot;
     },
 

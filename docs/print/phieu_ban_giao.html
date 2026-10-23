@@ -1,0 +1,41 @@
+{#
+  PHIẾU BÀN GIAO: danh sách số phiếu đã chọn + cột ký nhận.
+  Biến: docs (1 phần tử: pages = [[{_stt, code, unit, project, line_count, issued_date}]], date_line), m, company, cell.
+#}
+<style>
+  .pbg .company { font-weight: 700; text-transform: uppercase; }
+  .pbg h1 { text-align: center; font-size: 16pt; margin: 6mm 0 5mm; }
+  .pbg .items td { height: 9mm; vertical-align: middle; }
+  .pbg .cont { font-weight: 600; margin-bottom: 3mm; }
+  .pbg .date-line { text-align: right; font-style: italic; margin-top: 4mm; }
+</style>
+{% for d in docs %}
+  {% for page in d.pages %}
+  <section class="sheet pbg">
+    {% if loop.first %}
+      <div class="company">{{ company.name }}</div>
+      <h1>{{ m.title }}</h1>
+    {% else %}
+      <div class="cont">{{ m.title }} (tiếp theo)</div>
+    {% endif %}
+    <table class="items">
+      <colgroup>{% for c in m.columns %}<col style="{% if c.width %}width:{{ c.width }}{% endif %}">{% endfor %}</colgroup>
+      <thead><tr>{% for c in m.columns %}<th>{{ c.label }}</th>{% endfor %}</tr></thead>
+      <tbody>
+        {% for r in page %}
+        <tr>{% for c in m.columns %}<td class="{{ c.align }}">{{ cell(r, c) if c.field else '' }}</td>{% endfor %}</tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% if loop.last %}
+      <div class="date-line">{{ d.date_line }}</div>
+      <div class="signs" style="grid-template-columns: repeat({{ m.signatures.length }}, 1fr)">
+        {% for s in m.signatures %}
+          <div><div class="t">{{ s.title }}</div><div class="hint">(Ký, ghi rõ họ tên)</div><div class="n"></div></div>
+        {% endfor %}
+      </div>
+    {% endif %}
+    <div class="pageno">Trang {{ loop.index }}/{{ loop.length }}</div>
+  </section>
+  {% endfor %}
+{% endfor %}

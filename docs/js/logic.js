@@ -78,9 +78,12 @@
     return isFinite(n) ? n : null;
   };
 
+  const numFormats = {}; // tạo Intl.NumberFormat 1 lần, dùng lại (gọi hàng nghìn lần khi vẽ bảng)
   L.fmtNum = function (v, digits) {
     if (v === null || v === undefined || v === '') return '';
-    return Number(v).toLocaleString('vi-VN', { maximumFractionDigits: digits === undefined ? 3 : digits });
+    const d = digits === undefined ? 3 : digits;
+    const f = numFormats[d] || (numFormats[d] = new Intl.NumberFormat('vi-VN', { maximumFractionDigits: d }));
+    return f.format(Number(v));
   };
 
   L.amount = (line) => (Number(line.qty_requested) || 0) * (Number(line.unit_price) || 0);

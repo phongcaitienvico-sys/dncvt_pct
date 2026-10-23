@@ -393,6 +393,44 @@ function linesPage() {
     ui.info = total + ' dòng' + (shown !== total ? ' · đang hiện ' + shown : '') + (sel ? ' · đã chọn ' + sel : '');
   }
 
+  /**
+   * Chỉnh độ rộng cột theo dữ liệu thật để không bị cắt "…": đo bằng canvas, lấy mức đủ cho ~97% dòng
+   * (tối đa AUTO_MAX px, dòng dài hơn tự xuống dòng) và luôn đủ rộng cho tiêu đề (tiêu đề dài tự xuống 2 dòng).
+   */
+  const AUTO_MAX = 440;
+  const FIXED_FIELDS = ['id', 'request_code'];
+  function autoFitColumns(rows) {
+    const ctx = document.createElement('canvas').getContext('2d');
+    const measure = (text, bold) => { ctx.font = (bold ? '600 ' : '') + '14px "Noto Sans", system-ui, sans-serif'; return ctx.measureText(text).width; };
+    const cache = new Map();
+    const w = (s) => { let v = cache.get(s); if (v === undefined) { v = measure(s); cache.set(s, v); } return v; };
+    const text = {
+      _status: (d) => d._st.label,
+      need_date: (d) => Logic.fmtDate(d.need_date), request_date: (d) => Logic.fmtDate(d.request_date),
+      last_received_date: (d) => Logic.fmtDate(d.last_received_date),
+    };
+    NUM_FIELDS.concat(['amount', 'qty_received', 'qty_missing']).forEach((f) => { text[f] = (d) => Logic.fmtNum(d[f]); });
+    table.blockRedraw();
+    table.getColumns().forEach((col) => {
+      const field = col.getField();
+      if (!field || FIXED_FIELDS.includes(field)) return;
+      const title = col.getDefinition().title || '';
+      const words = title.split(/\s+/);
+      const headMin = Math.max(...words.map((s) => measure(s, true))) + 36;
+      const headFull = measure(title, true) + 36;
+      const get = text[field] || ((d) => d[field]);
+      const widths = [];
+      for (let i = 0; i < rows.length; i++) {
+        const v = get(rows[i]);
+        if (v !== null && v !== undefined && v !== '') widths.push(w(String(v)));
+      }
+      widths.sort((a, b) => a - b);
+      const content = widths.length ? widths[Math.min(widths.length - 1, Math.floor(widths.length * 0.97))] + 24 : 0;
+      col.setWidth(Math.round(Math.max(headMin, Math.min(headFull, 150), Math.min(content, AUTO_MAX))));
+    });
+    table.restoreRedraw();
+  }
+
   // ---------- Trạng thái Alpine ----------
 
   const state = {
@@ -443,6 +481,7 @@ function linesPage() {
         const rows = App.rowsToObjects(data).map(prepare);
         placeholderText = 'Chưa có dòng nào khớp. Bấm "+ Thêm dòng" hoặc dán từ Excel.';
         await table.setData(rows);
+        autoFitColumns(rows);
         historyCache = null;
         buildOptions(rows);
         table.setFilter(filterFn);

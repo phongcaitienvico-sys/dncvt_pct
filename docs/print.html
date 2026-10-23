@@ -17,6 +17,14 @@
 <body class="print">
   <div class="print-toolbar">
     <button class="primary" type="button" id="btn-print">In / Lưu PDF</button>
+    <label>Khổ giấy
+      <select id="paper">
+        <option value="a5l">A5 ngang</option>
+        <option value="a4l">A4 ngang (cột rộng nhất)</option>
+        <option value="a4p">A4 dọc</option>
+        <option value="a5p">A5 dọc</option>
+      </select>
+    </label>
     <label>Số dòng mỗi trang
       <select id="rpp"></select>
     </label>
@@ -38,13 +46,41 @@
       if (!codes.length) { msg.textContent = 'Chưa có số phiếu.'; return; }
       const m = M[tpl];
 
-      // Số dòng mỗi trang: mặc định theo mapping, người dùng chọn 10–40 (nhớ trên máy này)
-      const rppKey = 'ncvt_rpp_' + tpl;
-      let rpp = m.rows_per_page || 20;
-      try { rpp = Number(localStorage.getItem(rppKey)) || rpp; } catch (e) { /* bỏ qua */ }
+      // Khổ giấy: mặc định A5 ngang; số dòng mỗi trang gợi ý theo khổ (nhớ lựa chọn trên máy này)
+      const PAPERS = {
+        a5l: { size: 'A5 landscape', w: '210mm', h: '148mm', pad: '6mm 7mm 8mm 7mm', fs: '9pt', gap: '9mm', logo: '10mm', cp: '0.7mm', rows: 5 },
+        a4l: { size: 'A4 landscape', w: '297mm', h: '210mm', pad: '8mm 10mm 10mm 10mm', fs: '10pt', gap: '14mm', logo: '14mm', cp: '1mm', rows: 10 },
+        a4p: { size: 'A4 portrait', w: '210mm', h: '297mm', pad: '10mm 10mm 12mm 12mm', fs: '11pt', gap: '20mm', logo: '20mm', cp: '1.5mm', rows: 15 },
+        a5p: { size: 'A5 portrait', w: '148mm', h: '210mm', pad: '7mm 7mm 9mm 7mm', fs: '9pt', gap: '12mm', logo: '12mm', cp: '1mm', rows: 7 },
+      };
+      const store = {
+        get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+        set(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* bỏ qua */ } },
+      };
+      const paperSel = document.getElementById('paper');
       const sel = document.getElementById('rpp');
-      [10, 15, 20, 25, 30, 35, 40].concat([rpp]).filter((v, i, a) => a.indexOf(v) === i).sort((a, b) => a - b)
-        .forEach((n) => sel.add(new Option(n, n, false, n === rpp)));
+      const paperKey = 'ncvt_paper_' + tpl;
+      paperSel.value = PAPERS[store.get(paperKey)] ? store.get(paperKey) : 'a5l';
+      const rppKey = () => 'ncvt_rpp_' + tpl + '_' + paperSel.value;
+      const fillRpp = () => {
+        const def = PAPERS[paperSel.value].rows;
+        const cur = Number(store.get(rppKey())) || def;
+        sel.innerHTML = '';
+        [3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 20, 25, 30, 35, 40].concat([cur]).filter((v, i, a) => a.indexOf(v) === i)
+          .sort((a, b) => a - b).forEach((n) => sel.add(new Option(n, n, false, n === cur)));
+      };
+      const pageStyle = document.createElement('style');
+      document.head.appendChild(pageStyle);
+      const applyPaper = () => {
+        const p = PAPERS[paperSel.value];
+        const root = document.documentElement.style;
+        root.setProperty('--pw', p.w); root.setProperty('--ph', p.h); root.setProperty('--pad', p.pad);
+        root.setProperty('--fs', p.fs); root.setProperty('--sign-gap', p.gap);
+        root.setProperty('--logo-h', p.logo); root.setProperty('--cp', p.cp);
+        // Lề thật do @page quyết định; .sheet ở chế độ in bỏ padding nên đặt lề ở đây
+        pageStyle.textContent = '@page { size: ' + p.size + '; margin: ' + p.pad + '; }';
+      };
+      fillRpp(); applyPaper();
 
       let boot, data, src;
       try {
@@ -154,7 +190,8 @@
         });
         msg.style.display = 'none';
       }
-      sel.addEventListener('change', () => { try { localStorage.setItem(rppKey, sel.value); } catch (e) { /* bỏ qua */ } render(); });
+      sel.addEventListener('change', () => { store.set(rppKey(), sel.value); render(); });
+      paperSel.addEventListener('change', () => { store.set(paperKey, paperSel.value); fillRpp(); applyPaper(); render(); });
       document.getElementById('btn-print').addEventListener('click', () => window.print());
       document.title = (tpl === 'phieu_de_nghi' ? '' : tpl + ' ') + codes.join('_');
       try { render(); } catch (e) { msg.textContent = 'Lỗi mẫu in: ' + e.message; }

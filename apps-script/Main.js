@@ -10,6 +10,7 @@ function routes_() {
     'bootstrap': { fn: apiBootstrap_ },
     'lines.list': { fn: apiLinesList_ },
     'lines.save': { write: true, fn: apiLinesSave_ },
+    'lines.create': { write: true, fn: apiLinesCreate_ },
     'lines.delete': { write: true, fn: apiLinesDelete_ },
     'lines.duplicate': { write: true, fn: apiLinesDuplicate_ },
     'requests.issue': { write: true, fn: apiRequestsIssue_ },

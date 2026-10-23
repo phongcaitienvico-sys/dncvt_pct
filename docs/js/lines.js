@@ -31,6 +31,8 @@ function linesPage() {
   let lastCell = null; // ô được nhấp gần nhất (để dán)
   let historyCache = null;
   let placeholderText = 'Đang tải dữ liệu…';
+  let formKey = 0;
+  let formProjects = new Map();
   let ui = null; // proxy Alpine (gán trong init) — ghi qua đây thì giao diện mới cập nhật
   let projectByCode = {};
   let projectByName = {};
@@ -161,6 +163,15 @@ function linesPage() {
     saveTimer = setTimeout(flushSaves, ms);
   }
 
+  /**
+   * row.update khi một ô đang mở trình sửa có thể ném lỗi 'removeChild … blur' của Tabulator (dữ liệu vẫn đúng).
+   * Không để lỗi hiển thị nhầm là "chưa lưu được": thử lại sau khi ô đóng.
+   */
+  function safeUpdate(row, data) {
+    try { row.update(data); return; } catch (e) { /* thử lại bên dưới */ }
+    setTimeout(() => { try { row.update(data); } catch (e) { console.warn('row.update', e); } }, 250);
+  }
+
   async function flushSaves() {
     if (saving) { scheduleSave(300); return; }
     const batch = [];
@@ -189,9 +200,8 @@ function linesPage() {
         const local = row.getData();
         const merged = Object.assign({}, r.line);
         dirty.forEach((f) => { merged[f] = local[f]; });
-        row.update(Object.assign(merged, derive(merged)));
-        row.getElement().classList.remove('save-error');
-        row.reformat();
+        safeUpdate(row, Object.assign(merged, derive(merged)));
+        try { row.getElement().classList.remove('save-error'); row.reformat(); } catch (err) { /* bảng đang vẽ lại, bỏ qua */ }
       });
       historyCache = null;
     } catch (e) {
@@ -241,7 +251,7 @@ function linesPage() {
     if (field === 'project_code' && d.project_code && projectByCode[d.project_code]) changes.project_name = projectByCode[d.project_code];
     if (field === 'project_name' && d.project_name && projectByName[d.project_name]) changes.project_code = projectByName[d.project_name];
     Object.assign(changes, derive(Object.assign({}, d, changes)));
-    row.update(changes);
+    safeUpdate(row, changes);
     markDirty(row, [field].concat(Object.keys(changes).filter((f) => EDITABLE_FIELDS.includes(f))));
     updateInfo();
   }
@@ -263,8 +273,11 @@ function linesPage() {
     const idx = rows.findIndex((r) => r.getElement() === rowEl);
     if (idx < 0) return;
     setTimeout(() => {
-      if (idx === rows.length - 1) ui.addRow(field);
-      else editCellOf(rows[idx + 1], field);
+      try { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); } catch (err) { /* bỏ qua */ }
+      setTimeout(() => {
+        if (idx === rows.length - 1) ui.addRow(field);
+        else editCellOf(rows[idx + 1], field);
+      }, 120);
     }, 30);
   }
 
@@ -328,7 +341,7 @@ function linesPage() {
       });
       const fields = Object.keys(changes);
       if (!fields.length) return;
-      row.update(Object.assign(changes, derive(Object.assign({}, d, changes))));
+      safeUpdate(row, Object.assign(changes, derive(Object.assign({}, d, changes))));
       markDirty(row, fields);
     });
     historyCache = null;
@@ -440,6 +453,109 @@ function linesPage() {
     info: 'Đang tải…',
     unsaved: 0,
 
+    // ---------- Form thêm nhiều vật tư ----------
+    fm: { open: false, busy: false, error: '', pasteOpen: false, paste: '', c: {}, items: [] },
+    dl: { units: [], projects: [], uoms: [], loc: [], req: [], purpose: [], sup: [], name: [] },
+
+    openForm() {
+      const cat = App.boot.catalogs;
+      const h = history().lists;
+      const projects = new Map();
+      cat.project_items.forEach((p) => {
+        const code = p.item_code || p.project_code;
+        const name = p.item_name || p.project_name;
+        if (code || name) projects.set([code, name].filter(Boolean).join(' — '), { code: code || null, name: name || null });
+      });
+      formProjects = projects;
+      this.dl = {
+        units: cat.units.map((u) => u.name), projects: Array.from(projects.keys()), uoms: cat.uoms.map((u) => u.name),
+        loc: h.delivery_location, req: h.requester, purpose: h.purpose, sup: h.supplier, name: h.name,
+      };
+      if (!this.fm.items.length) { this.fm.items = []; this.formAddRow(3); }
+      this.fm.c = Object.assign({
+        unit: '', project: '', delivery_location: '', requester: App.user.full_name, request_date: today, need_date: '', purpose: '', supplier: '',
+      }, this.fm.c.unit !== undefined ? this.fm.c : {});
+      this.fm.error = '';
+      this.fm.open = true;
+      setTimeout(() => { const el = document.getElementById('fm-name-0'); if (el) el.focus(); }, 100);
+    },
+    closeForm() {
+      if (this.fm.busy) return;
+      const filled = this.fm.items.some((i) => (i.name || '').trim());
+      if (filled && !confirm('Đóng form? Các vật tư đang nhập chưa lưu sẽ giữ lại cho lần mở sau.')) return;
+      this.fm.open = false;
+    },
+    formAddRow(n) { for (let i = 0; i < n; i++) this.fm.items.push({ k: ++formKey, name: '', uom: '', qty_requested: '', qty_on_hand: '', note: '' }); },
+    formRemove(i) { this.fm.items.splice(i, 1); if (!this.fm.items.length) this.formAddRow(1); },
+    formEnter(i) {
+      if (i === this.fm.items.length - 1) this.formAddRow(1);
+      setTimeout(() => { const el = document.getElementById('fm-name-' + (i + 1)); if (el) el.focus(); }, 60);
+    },
+    formName(it) {
+      const hit = history().byName[Logic.fold(it.name)];
+      if (hit && !it.uom && hit.uom) it.uom = hit.uom;
+    },
+    formProject() { /* nhận diện lúc lưu */ },
+    formPaste() {
+      const rows = parseTsv(this.fm.paste.replace(/\s+$/, '')).filter((r) => (r[0] || '').trim());
+      if (!rows.length) { this.fm.error = 'Chưa có dòng nào để thêm.'; return; }
+      // bỏ các dòng trống đang có ở cuối rồi nối thêm
+      while (this.fm.items.length && !(this.fm.items[this.fm.items.length - 1].name || '').trim()) this.fm.items.pop();
+      rows.forEach((r) => {
+        const it = { k: ++formKey, name: r[0].trim(), uom: (r[1] || '').trim(), qty_requested: (r[2] || '').trim(), qty_on_hand: '', note: (r[3] || '').trim() };
+        this.formName(it);
+        this.fm.items.push(it);
+      });
+      this.fm.paste = ''; this.fm.pasteOpen = false; this.fm.error = '';
+    },
+    async formSubmit(issue) {
+      this.fm.error = '';
+      const c = this.fm.c;
+      const items = [];
+      for (let i = 0; i < this.fm.items.length; i++) {
+        const it = this.fm.items[i];
+        if (!(it.name || '').trim() && !String(it.qty_requested || '').trim()) continue; // dòng trống bỏ qua
+        const name = (it.name || '').trim();
+        const qty = Logic.parseNum(it.qty_requested);
+        if (!name) { this.fm.error = 'Dòng ' + (i + 1) + ': thiếu tên vật tư.'; return; }
+        if (!(qty > 0)) { this.fm.error = 'Dòng ' + (i + 1) + ' (' + name + '): nhập số lượng lớn hơn 0.'; return; }
+        const hit = history().byName[Logic.fold(name)] || {};
+        items.push({
+          name, uom: (it.uom || '').trim() || hit.uom || null, qty_requested: qty, qty_on_hand: Logic.parseNum(it.qty_on_hand),
+          note: (it.note || '').trim() || null, material_group: hit.material_group || null, unit_price: hit.unit_price || null,
+        });
+      }
+      if (!items.length) { this.fm.error = 'Chưa có vật tư nào.'; return; }
+      const proj = formProjects.get((c.project || '').trim()) || { code: null, name: (c.project || '').trim() || null };
+      const common = {
+        unit: c.unit || null, project_code: proj.code, project_name: proj.name, delivery_location: c.delivery_location || null,
+        requester: c.requester || null, request_date: c.request_date || null, need_date: c.need_date || null,
+        purpose: c.purpose || null, supplier: c.supplier || null,
+      };
+      if (issue && !confirm('Lưu ' + items.length + ' vật tư và cấp số phiếu mới?')) return;
+      const win = issue ? App.openPrintWindow() : null;
+      if (win) win.document.write('<p style="font:16px sans-serif;padding:24px">Đang cấp số phiếu…</p>');
+      this.fm.busy = true;
+      try {
+        const res = await Api.call('lines.create', { common, items, issue: !!issue });
+        await table.addData(res.lines.map((l) => prepare(l)), false);
+        historyCache = null;
+        updateInfo();
+        this.fm.items = []; this.formAddRow(3);
+        this.fm.open = false;
+        table.scrollToRow('i' + res.lines[res.lines.length - 1].id, 'bottom', false).catch(() => {});
+        App.toast('Đã thêm ' + res.lines.length + ' vật tư' + (res.code ? ' — phiếu ' + res.code : '') + '.', 'ok', 6000);
+        if (res.code) {
+          if (win) win.location.href = App.printUrl([res.code]);
+          else window.open(App.printUrl([res.code]), '_blank');
+        }
+      } catch (e) {
+        if (win) win.close();
+        this.fm.error = e.message;
+      }
+      this.fm.busy = false;
+    },
+
     async init() {
       ui = this;
       const boot = await App.init();
@@ -544,7 +660,7 @@ function linesPage() {
         }
         rows.forEach((r) => {
           const d = Object.assign({}, r.getData(), { request_code: res.code });
-          r.update(Object.assign({ request_code: res.code }, derive(d)));
+          safeUpdate(r, Object.assign({ request_code: res.code }, derive(d)));
           r.deselect();
           r.reformat();
         });

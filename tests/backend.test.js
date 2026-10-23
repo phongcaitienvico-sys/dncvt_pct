@@ -202,3 +202,24 @@ test('đổi mật khẩu', () => {
   b.call('auth.changePassword', { old_password: 'matkhau123', new_password: 'moi12345' }, user);
   assert.ok(b.call('login', { username: 'nam', password: 'moi12345' }).token);
 });
+
+test('form thêm nhiều vật tư: tạo dòng + cấp phiếu trong một lệnh, lỗi không để lại dòng', () => {
+  const { b, user } = fresh();
+  const common = { unit: 'Phòng Kỹ thuật', project_code: 'HM01', project_name: 'Hạng mục 1', delivery_location: 'Xưởng 1', need_date: '2026-10-30' };
+  const items = [{ name: 'Bulong M12', uom: 'Bộ', qty_requested: 10 }, { name: 'Ốc M12', uom: 'Cái', qty_requested: '5', note: 'gấp' }];
+  // lỗi: dòng 2 thiếu số lượng → không dòng nào được ghi, không tốn số phiếu
+  assert.throws(() => b.call('lines.create', { common, items: [items[0], { name: 'X' }], issue: true }, user), /Dòng 2/);
+  assert.equal(b.call('lines.list', {}, user).rows.length, 0);
+  const only = b.call('lines.create', { common, items }, user);
+  assert.equal(only.code, null);
+  assert.equal(only.lines.length, 2);
+  assert.equal(only.lines[0].project_code, 'HM01');
+  const res = b.call('lines.create', { common, items, issue: true }, user);
+  assert.equal(res.code, 'YC2026-295');
+  assert.ok(res.lines.every((l) => l.request_code === 'YC2026-295'));
+  const list = b.call('lines.list', {}, user);
+  const ci = list.columns.indexOf('request_code');
+  assert.deepEqual(list.rows.map((r) => r[ci]), [null, null, 'YC2026-295', 'YC2026-295']);
+  const header = b.call('requests.get', { codes: ['YC2026-295'] }, user)[0].request.header_json;
+  assert.equal(header.unit, 'Phòng Kỹ thuật');
+});

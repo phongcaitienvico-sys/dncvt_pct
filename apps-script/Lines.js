@@ -147,3 +147,36 @@ function apiLinesDuplicate_(p, ctx) {
   const agg = {};
   return tableInsert_('lines', copies).map(function (l) { return withReceipts_(l, agg); });
 }
+
+/**
+ * Form "Thêm vật tư": tạo NHIỀU dòng một lần trong cùng một khóa, tùy chọn cấp số phiếu ngay (issue=true).
+ * p.common = các trường chung áp cho mọi dòng; p.items = [{name, uom, qty_requested, qty_on_hand, note, ...}] (trường riêng đè trường chung).
+ * Kiểm tra TRƯỚC khi ghi nên lỗi không để lại dòng dở dang hoặc tiêu hao số phiếu.
+ */
+function apiLinesCreate_(p, ctx) {
+  const items = Array.isArray(p.items) ? p.items : [];
+  if (!items.length) fail_('Chưa có vật tư nào để thêm.');
+  if (items.length > CONFIG.MAX_LINES_PER_REQUEST) fail_('Mỗi lần thêm tối đa ' + CONFIG.MAX_LINES_PER_REQUEST + ' dòng.');
+  const common = p.common && typeof p.common === 'object' ? p.common : {};
+  const lines = items.map(function (it, i) {
+    const merged = Object.assign({}, common);
+    Object.keys(it || {}).forEach(function (k) { if (it[k] !== null && it[k] !== undefined && it[k] !== '') merged[k] = it[k]; });
+    const clean = cleanLinePatch_(merged);
+    if (!clean.name) fail_('Dòng ' + (i + 1) + ': thiếu tên vật tư.');
+    if (!(clean.qty_requested > 0)) fail_('Dòng ' + (i + 1) + ' (' + clean.name + '): số lượng phải lớn hơn 0.');
+    if (!clean.request_date) clean.request_date = todayStr_();
+    return clean;
+  });
+  const now = nowStr_();
+  const rows = tableInsert_('lines', lines.map(function (l) {
+    return Object.assign({ request_code: null, legacy_flag: false }, l, { created_by: ctx.user.username, created_at: now, updated_at: now });
+  }));
+  let code = null;
+  if (p.issue) {
+    code = apiRequestsIssue_({ line_ids: rows.map(function (r) { return r.id; }), confirm_mixed: true, header: p.header }, ctx).code;
+    rows.forEach(function (r) { r.request_code = code; });
+  }
+  audit_(ctx, 'lines', rows.map(function (r) { return r.id; }).join(','), '(thêm bằng form)', '', rows.length + ' dòng' + (code ? ', phiếu ' + code : ''));
+  const agg = receiptAgg_();
+  return { code: code, lines: rows.map(function (r) { return withReceipts_(r, agg); }) };
+}

@@ -28,6 +28,7 @@
     <div class="toolbar">
       <button class="primary" type="button" @click="issue()" title="Cấp số phiếu mới cho các dòng đã chọn, hoặc in lại nếu các dòng đã có số phiếu">Xuất phiếu PDF</button>
       <button type="button" @click="reprintPrompt()">In lại theo số phiếu…</button>
+      <button type="button" class="primary" style="background:#157f3b;border-color:#157f3b" @click="openForm()" title="Nhập nhiều vật tư một lần, có thể lưu kèm xuất phiếu">+ Thêm vật tư (form)</button>
       <button type="button" @click="addRow()">+ Thêm dòng</button>
       <button type="button" @click="duplicate()">Nhân bản dòng</button>
       <button type="button" class="danger" @click="remove()">Xóa dòng</button>
@@ -68,6 +69,72 @@
       <button type="button" class="link" @click="clearFilters()">Bỏ lọc</button>
     </div>
 
+
+    <!-- Form thêm nhiều vật tư -->
+    <div class="modal-back" x-show="fm.open" x-cloak @keydown.escape.window="closeForm()">
+      <div class="modal" role="dialog" aria-modal="true" aria-label="Thêm vật tư">
+        <div class="modal-head">
+          <b>Thêm vật tư</b>
+          <button type="button" class="link" @click="closeForm()">Đóng</button>
+        </div>
+        <div class="modal-body">
+          <div class="fgrid">
+            <label>Đơn vị đề xuất <input list="dl-unit" x-model="fm.c.unit"></label>
+            <label class="wide">Hạng mục (mã — tên) <input list="dl-project" x-model="fm.c.project" @change="formProject()" placeholder="Gõ để tìm, vd. MS332"></label>
+            <label>Địa điểm giao <input list="dl-loc" x-model="fm.c.delivery_location"></label>
+            <label>Người yêu cầu <input list="dl-req" x-model="fm.c.requester"></label>
+            <label>Ngày yêu cầu <input type="date" x-model="fm.c.request_date"></label>
+            <label>Ngày cần có <input type="date" x-model="fm.c.need_date"></label>
+            <label class="wide">Mục đích sử dụng <input list="dl-purpose" x-model="fm.c.purpose"></label>
+            <label>Người mua / NCC <input list="dl-sup" x-model="fm.c.supplier"></label>
+          </div>
+          <div class="muted small" style="margin:4px 0 8px">Các thông tin trên áp cho mọi dòng bên dưới. Dòng nào cần khác thì sửa sau trong bảng.</div>
+
+          <table class="simple items-form">
+            <thead><tr><th style="width:34px">#</th><th>Tên vật tư *</th><th style="width:90px">ĐVT</th><th style="width:90px">SL *</th><th style="width:90px">Tồn kho</th><th style="width:170px">Ghi chú</th><th style="width:34px"></th></tr></thead>
+            <tbody>
+              <template x-for="(it, i) in fm.items" :key="it.k">
+                <tr>
+                  <td x-text="i + 1"></td>
+                  <td><input list="dl-name" x-model="it.name" @change="formName(it)" :id="'fm-name-' + i" @keydown.enter.prevent="formEnter(i)" placeholder="Tên vật tư"></td>
+                  <td><input list="dl-uom" x-model="it.uom"></td>
+                  <td><input x-model="it.qty_requested" inputmode="decimal" @keydown.enter.prevent="formEnter(i)"></td>
+                  <td><input x-model="it.qty_on_hand" inputmode="decimal"></td>
+                  <td><input x-model="it.note"></td>
+                  <td><button type="button" class="link danger" @click="formRemove(i)" title="Xóa dòng">✕</button></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+          <div class="toolbar" style="margin-top:8px">
+            <button type="button" @click="formAddRow(1)">+ Thêm dòng</button>
+            <button type="button" @click="formAddRow(5)">+ 5 dòng</button>
+            <button type="button" @click="fm.pasteOpen = !fm.pasteOpen" x-text="fm.pasteOpen ? 'Ẩn ô dán' : 'Dán từ Excel…'"></button>
+          </div>
+          <div x-show="fm.pasteOpen" class="panel" style="margin-top:6px">
+            <div class="small muted">Dán các dòng từ Excel, mỗi dòng gồm các cột: <b>Tên vật tư | ĐVT | Số lượng | Ghi chú</b> (ĐVT, SL, Ghi chú có thể bỏ trống).</div>
+            <textarea rows="5" style="width:100%;margin:6px 0" x-model="fm.paste" placeholder="Bulong M12x50&#9;Bộ&#9;100"></textarea>
+            <button type="button" @click="formPaste()">Thêm vào danh sách</button>
+          </div>
+          <div class="error-text" x-text="fm.error"></div>
+        </div>
+        <div class="modal-foot">
+          <span class="muted small" x-text="fm.items.filter(i => (i.name||'').trim()).length + ' vật tư'"></span>
+          <span class="spacer"></span>
+          <button type="button" @click="closeForm()" :disabled="fm.busy">Hủy</button>
+          <button type="button" @click="formSubmit(false)" :disabled="fm.busy">Lưu</button>
+          <button type="button" class="primary" @click="formSubmit(true)" :disabled="fm.busy" title="Lưu rồi cấp số phiếu và mở phiếu để in/lưu PDF">Lưu &amp; xuất phiếu PDF</button>
+        </div>
+      </div>
+    </div>
+    <datalist id="dl-unit"><template x-for="u in dl.units" :key="u"><option :value="u"></option></template></datalist>
+    <datalist id="dl-project"><template x-for="u in dl.projects" :key="u"><option :value="u"></option></template></datalist>
+    <datalist id="dl-uom"><template x-for="u in dl.uoms" :key="u"><option :value="u"></option></template></datalist>
+    <datalist id="dl-loc"><template x-for="u in dl.loc" :key="u"><option :value="u"></option></template></datalist>
+    <datalist id="dl-req"><template x-for="u in dl.req" :key="u"><option :value="u"></option></template></datalist>
+    <datalist id="dl-purpose"><template x-for="u in dl.purpose" :key="u"><option :value="u"></option></template></datalist>
+    <datalist id="dl-sup"><template x-for="u in dl.sup" :key="u"><option :value="u"></option></template></datalist>
+    <datalist id="dl-name"><template x-for="u in dl.name" :key="u"><option :value="u"></option></template></datalist>
     </div>
     <div id="grid"></div>
     <div class="muted small" style="margin-top:6px">

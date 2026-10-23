@@ -11,6 +11,18 @@ function setup() {
   console.log('Xong. Các tab: ' + Object.keys(SCHEMA).join(', '));
 }
 
+/**
+ * Chỉ tạo các tab + dòng tiêu đề (định dạng chữ), không seed gì.
+ * Dùng khi nạp dữ liệu cũ bằng cách dán từ out/db_khoi_tao.xlsx: createTabs → dán dữ liệu → setup.
+ */
+function createTabs() {
+  const store = store_();
+  Object.keys(SCHEMA).forEach(function (t) {
+    store.ensure(t, SCHEMA[t].map(function (c) { return c[0]; }));
+  });
+  console.log('Đã tạo tab: ' + Object.keys(SCHEMA).join(', '));
+}
+
 /** Cài trigger sao lưu hằng đêm (23:00). Chạy một lần. */
 function installTriggers() {
   ScriptApp.getProjectTriggers().forEach(function (t) {

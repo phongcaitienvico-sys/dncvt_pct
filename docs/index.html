@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Đăng nhập · Đề nghị cấp vật tư</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;600;700&display=swap&subset=vietnamese" rel="stylesheet">
+  <link rel="stylesheet" href="css/app.css">
+  <script src="js/config.js"></script>
+  <script src="js/app.js"></script>
+</head>
+<body>
+  <div class="login-wrap">
+    <div class="login-card">
+      <h1>Đề nghị cấp vật tư</h1>
+      <div class="muted small">Đăng nhập để tiếp tục</div>
+      <form id="f">
+        <label>Tên đăng nhập <input name="username" autocomplete="username" required autofocus></label>
+        <label>Mật khẩu <input name="password" type="password" autocomplete="current-password" required></label>
+        <div class="error-text" id="err"></div>
+        <button class="primary" type="submit" id="btn">Đăng nhập</button>
+      </form>
+    </div>
+  </div>
+  <script>
+    const params = new URLSearchParams(location.search);
+    // Chỉ chuyển tới trang nội bộ (chặn chuyển hướng ra ngoài)
+    const next = /^[a-z_]+\.html(\?[^#]*)?$/.test(params.get('next') || '') ? params.get('next') : 'lines.html';
+    if (Api.token()) location.replace(next);
+    document.getElementById('f').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const btn = document.getElementById('btn');
+      const err = document.getElementById('err');
+      const fd = new FormData(ev.target);
+      btn.disabled = true; btn.textContent = 'Đang đăng nhập…'; err.textContent = '';
+      try {
+        Api.saveLogin(await Api.call('login', { username: fd.get('username'), password: fd.get('password') }));
+        location.replace(next);
+      } catch (e) {
+        err.textContent = e.message;
+        btn.disabled = false; btn.textContent = 'Đăng nhập';
+      }
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Bảng vật tư · Đề nghị cấp vật tư</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;600;700&display=swap&subset=vietnamese" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/tabulator-tables@6.3.1/dist/css/tabulator_simple.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="css/app.css">
+  <script src="https://cdn.jsdelivr.net/npm/tabulator-tables@6.3.1/dist/js/tabulator.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/logic.js"></script>
+  <script src="js/app.js"></script>
+  <script src="js/lines.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js"></script>
+  <style>
+    #grid { height: calc(100vh - 190px); min-height: 360px; background: #fff; }
+    .unsaved { color: var(--warn); font-weight: 600; }
+  </style>
+</head>
+<body>
+  <header id="topbar"></header>
+  <main x-data="linesPage()" x-init="init()">
+    <div class="toolbar">
+      <button class="primary" type="button" @click="issue()" title="Cấp số phiếu mới cho các dòng đã chọn, hoặc in lại nếu các dòng đã có số phiếu">Xuất phiếu PDF</button>
+      <button type="button" @click="reprintPrompt()">In lại theo số phiếu…</button>
+      <button type="button" @click="addRow()">+ Thêm dòng</button>
+      <button type="button" @click="duplicate()">Nhân bản dòng</button>
+      <button type="button" class="danger" @click="remove()">Xóa dòng</button>
+      <button type="button" @click="exportExcel()">Xuất Excel</button>
+      <span class="spacer"></span>
+      <span class="unsaved" x-show="unsaved > 0">
+        <span x-text="unsaved"></span> dòng chưa lưu
+        <button type="button" class="link" @click="retrySave()">Lưu lại</button>
+      </span>
+      <span class="muted small" x-text="info"></span>
+    </div>
+
+    <div class="filters">
+      <input type="search" placeholder="Tìm (tên, mục đích, NCC…)" x-model.debounce.300ms="f.q" @input.debounce.300ms="applyFilters()">
+      <label class="check"><input type="checkbox" x-model="f.noCode" @change="applyFilters()"> Chưa có phiếu</label>
+      <label class="check"><input type="checkbox" x-model="f.mine" @change="applyFilters()"> Của tôi</label>
+      <input type="search" placeholder="Số phiếu" style="width:130px" x-model.debounce.300ms="f.code" @input.debounce.300ms="applyFilters()">
+      <select x-model="f.project" @change="applyFilters()">
+        <option value="">— Hạng mục —</option>
+        <template x-for="p in opts.projects" :key="p"><option :value="p" x-text="p"></option></template>
+      </select>
+      <select x-model="f.unit" @change="applyFilters()">
+        <option value="">— Đơn vị —</option>
+        <template x-for="u in opts.units" :key="u"><option :value="u" x-text="u"></option></template>
+      </select>
+      <select x-model="f.week" @change="applyFilters()">
+        <option value="">— Tuần —</option>
+        <template x-for="w in opts.weeks" :key="w"><option :value="w" x-text="'Tuần ' + w"></option></template>
+      </select>
+      <select x-model="f.month" @change="applyFilters()">
+        <option value="">— Tháng —</option>
+        <template x-for="m in opts.months" :key="m"><option :value="m" x-text="m"></option></template>
+      </select>
+      <select x-model="f.status" @change="applyFilters()">
+        <option value="">— Trạng thái —</option>
+        <template x-for="s in statusFilters" :key="s[0]"><option :value="s[0]" x-text="s[1]"></option></template>
+      </select>
+      <button type="button" class="link" @click="clearFilters()">Bỏ lọc</button>
+    </div>
+
+    <div id="grid"></div>
+    <div class="muted small" style="margin-top:6px">
+      Nhấp vào ô để sửa · Enter: lưu và xuống dòng dưới (ở dòng cuối sẽ tự thêm dòng mới) ·
+      Dán từ Excel: nhấp chọn ô bắt đầu rồi Ctrl+V · Dòng đã có số phiếu: chỉ Quản trị sửa được tên vật tư và số lượng.
+    </div>
+  </main>
+</body>
+</html>

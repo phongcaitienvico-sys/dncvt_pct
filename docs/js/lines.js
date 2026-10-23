@@ -1,0 +1,567 @@
+/** Màn hình chính: bảng vật tư chung (Tabulator) + lưu tự động + xuất phiếu. */
+
+const EDITABLE_FIELDS = ['unit', 'material_group', 'name', 'uom', 'qty_requested', 'qty_on_hand', 'need_date',
+  'project_code', 'project_name', 'purpose', 'equipment_name', 'delivery_location', 'requester', 'request_date',
+  'supplier', 'unit_price', 'note'];
+const LOCKED_AFTER_ISSUE = ['name', 'qty_requested'];
+const NUM_FIELDS = ['qty_requested', 'qty_on_hand', 'unit_price'];
+const DATE_FIELDS = ['need_date', 'request_date'];
+
+// Cột xuất Excel: [field, tiêu đề, hàm lấy giá trị?]
+const EXPORT_COLUMNS = [
+  ['id', 'STT'], ['request_code', 'Số phiếu'], ['unit', 'Đơn vị đề xuất'], ['material_group', 'Nhóm VT'],
+  ['name', 'Tên vật tư'], ['uom', 'ĐVT'], ['qty_requested', 'Số lượng yêu cầu'], ['qty_on_hand', 'SL tồn kho'],
+  ['need_date', 'Ngày cần có', (r) => Logic.fmtDate(r.need_date)], ['project_code', 'Mã hạng mục'],
+  ['project_name', 'Hạng mục'], ['purpose', 'Mục đích sử dụng'], ['equipment_name', 'Tên thiết bị'],
+  ['delivery_location', 'Địa điểm giao'], ['supplier', 'Nhà CC / Người cấp'],
+  ['request_date', 'Ngày yêu cầu', (r) => Logic.fmtDate(r.request_date)], ['requester', 'Người yêu cầu'],
+  ['last_received_date', 'Ngày nhận', (r) => Logic.fmtDate(r.last_received_date)], ['qty_received', 'Số lượng thực nhận'],
+  ['qty_missing', 'Số lượng còn thiếu'], ['_status', 'Trạng thái', (r) => r._st.label], ['unit_price', 'Đơn giá'],
+  ['amount', 'Thành tiền'], ['week', 'Tuần'], ['month', 'Tháng'], ['note', 'Ghi chú'], ['created_by', 'Người tạo'],
+];
+
+function linesPage() {
+  let table = null;
+  let today = Logic.todayIso();
+  let keySeq = 0;
+  const pending = new Map(); // _key -> Set(field)
+  const inflight = new Set(); // _key của dòng mới đang được tạo trên server
+  let saveTimer = null;
+  let saving = false;
+  let lastCell = null; // ô được nhấp gần nhất (để dán)
+  let historyCache = null;
+  let placeholderText = 'Đang tải dữ liệu…';
+  let ui = null; // proxy Alpine (gán trong init) — ghi qua đây thì giao diện mới cập nhật
+  let projectByCode = {};
+  let projectByName = {};
+
+  const newKey = () => 'n' + Date.now().toString(36) + (keySeq++);
+  const isAdmin = () => App.user && App.user.role === 'admin';
+
+  function derive(d) {
+    const st = Logic.computeStatus(d, today);
+    return {
+      amount: Logic.amount(d),
+      qty_missing: Logic.qtyMissing(d),
+      week: d.request_date ? Logic.isoWeek(d.request_date) + '/' + d.request_date.slice(0, 4) : '',
+      month: Logic.monthKey(d.request_date),
+      _st: st,
+      _s: Logic.fold([d.request_code, d.name, d.purpose, d.project_code, d.project_name, d.supplier, d.equipment_name,
+        d.requester, d.delivery_location, d.unit, d.material_group, d.note].join(' ')),
+    };
+  }
+  const prepare = (d) => Object.assign(d, { _key: d._key || 'i' + d.id }, derive(d));
+
+  /** Gợi ý từ lịch sử: tên vật tư → ĐVT, nhóm VT, đơn giá gần nhất; danh sách giá trị đã dùng. */
+  function history() {
+    if (historyCache) return historyCache;
+    const rows = table ? table.getData() : [];
+    const byName = {};
+    const sets = { name: new Set(), purpose: new Set(), equipment_name: new Set(), delivery_location: new Set(), requester: new Set(), supplier: new Set() };
+    rows.slice().sort((a, b) => (a.id || 1e12) - (b.id || 1e12)).forEach((r) => {
+      Object.keys(sets).forEach((k) => { if (r[k]) sets[k].add(r[k]); });
+      if (!r.name) return;
+      const k = Logic.fold(r.name);
+      const h = byName[k] || (byName[k] = {});
+      if (r.uom) h.uom = r.uom;
+      if (r.material_group) h.material_group = r.material_group;
+      if (r.unit_price) h.unit_price = r.unit_price;
+    });
+    (App.boot.users || []).forEach((u) => sets.requester.add(u.full_name));
+    App.boot.catalogs.suppliers.forEach((s) => sets.supplier.add(s.code || s.name));
+    const lists = {};
+    Object.keys(sets).forEach((k) => { lists[k] = Array.from(sets[k]).sort((a, b) => a.localeCompare(b, 'vi')); });
+    historyCache = { byName, lists };
+    return historyCache;
+  }
+
+  const foldFilter = (term, label) => Logic.fold(label).includes(Logic.fold(term));
+  const listEditor = (values, freetext, extra) => Object.assign({
+    values, autocomplete: true, allowEmpty: true, listOnEmpty: true, freetext: !!freetext, filterFunc: foldFilter, clearable: true,
+  }, extra || {});
+  const historyEditor = (field, listOnEmpty) => ({
+    valuesLookup: () => history().lists[field], autocomplete: true, allowEmpty: true, freetext: true,
+    listOnEmpty: listOnEmpty !== false, filterFunc: foldFilter, filterDelay: 150,
+  });
+
+  function canEdit(cell) {
+    const d = cell.getRow().getData();
+    if (d.request_code && !isAdmin() && LOCKED_AFTER_ISSUE.includes(cell.getField())) return false;
+    return true;
+  }
+
+  const fmtDateCell = (cell) => Logic.fmtDate(cell.getValue());
+  const fmtNumCell = (cell) => Logic.fmtNum(cell.getValue());
+  const numCol = (field, title, width, editable) => Object.assign({
+    field, title, width, hozAlign: 'right', formatter: fmtNumCell, sorter: 'number',
+  }, editable ? { editor: 'input', editable: canEdit, mutatorEdit: (v) => Logic.parseNum(v) } : {});
+
+  function columns(cat) {
+    const projectValues = cat.project_items.map((p) => {
+      const code = p.item_code || p.project_code;
+      return { value: code, label: code + ' — ' + (p.item_name || p.project_name || '') };
+    });
+    return [
+      { formatter: 'rowSelection', titleFormatter: 'rowSelection', titleFormatterParams: { rowRange: 'active' },
+        hozAlign: 'center', headerSort: false, width: 36, frozen: true },
+      { field: 'id', title: 'STT', width: 62, hozAlign: 'right', sorter: 'number', frozen: true },
+      { field: 'request_code', title: 'Số phiếu', width: 112, frozen: true, cssClass: 'code col-code' },
+      { field: '_status', title: 'Trạng thái', width: 122, sorter: (a, b, ra, rb) => ra.getData()._st.label.localeCompare(rb.getData()._st.label),
+        formatter: (cell) => { const s = cell.getRow().getData()._st; return `<span class="st ${s.color}">${App.esc(s.label)}</span>`; } },
+      { field: 'unit', title: 'Đơn vị đề xuất', width: 140, editor: 'list', editorParams: listEditor(cat.units.map((u) => u.name), true) },
+      { field: 'material_group', title: 'Nhóm VT', width: 120, editor: 'list', editorParams: listEditor(cat.material_groups.map((u) => u.name), true) },
+      { field: 'name', title: 'Tên vật tư', width: 240, editor: 'list', editable: canEdit, editorParams: historyEditor('name', false) },
+      { field: 'uom', title: 'ĐVT', width: 70, editor: 'list', editorParams: listEditor(cat.uoms.map((u) => u.name), true) },
+      numCol('qty_requested', 'SL yêu cầu', 90, true),
+      numCol('qty_on_hand', 'SL tồn kho', 85, true),
+      { field: 'need_date', title: 'Ngày cần có', width: 110, editor: 'date', formatter: fmtDateCell, mutatorEdit: (v) => Logic.parseDate(v) },
+      { field: 'project_code', title: 'Mã HM', width: 95, editor: 'list', editorParams: listEditor(projectValues, true) },
+      { field: 'project_name', title: 'Hạng mục', width: 180, editor: 'list', editorParams: listEditor(projectValues.map((p) => projectByCode[p.value] || p.label), true) },
+      { field: 'purpose', title: 'Mục đích sử dụng', width: 200, editor: 'list', editorParams: historyEditor('purpose', false) },
+      { field: 'equipment_name', title: 'Tên thiết bị', width: 140, editor: 'list', editorParams: historyEditor('equipment_name', false) },
+      { field: 'delivery_location', title: 'Địa điểm giao', width: 130, editor: 'list', editorParams: historyEditor('delivery_location') },
+      { field: 'requester', title: 'Người yêu cầu', width: 130, editor: 'list', editorParams: historyEditor('requester') },
+      { field: 'request_date', title: 'Ngày yêu cầu', width: 110, editor: 'date', formatter: fmtDateCell, mutatorEdit: (v) => Logic.parseDate(v) },
+      { field: 'supplier', title: 'NCC / Người cấp', width: 120, editor: 'list', editorParams: historyEditor('supplier') },
+      numCol('unit_price', 'Đơn giá', 100, true),
+      numCol('amount', 'Thành tiền', 110),
+      numCol('qty_received', 'Đã nhận', 75),
+      numCol('qty_missing', 'Còn thiếu', 80),
+      { field: 'last_received_date', title: 'Ngày nhận', width: 100, formatter: fmtDateCell },
+      { field: 'note', title: 'Ghi chú', width: 160, editor: 'input' },
+      { field: 'week', title: 'Tuần', width: 75 },
+      { field: 'month', title: 'Tháng', width: 80 },
+      { field: 'created_by', title: 'Người tạo', width: 95 },
+    ];
+  }
+
+  function rowFormatter(row) {
+    const d = row.getData();
+    const el = row.getElement();
+    el.classList.toggle('has-code', !!d.request_code);
+    el.classList.toggle('saving', pending.has(d._key) || inflight.has(d._key));
+    if (d.request_code && !isAdmin()) {
+      LOCKED_AFTER_ISSUE.forEach((f) => { const c = row.getCell(f); if (c) c.getElement().classList.add('locked'); });
+    }
+  }
+
+  // ---------- Lưu tự động ----------
+
+  function markDirty(row, fields) {
+    const key = row.getData()._key;
+    const set = pending.get(key) || new Set();
+    fields.forEach((f) => set.add(f));
+    pending.set(key, set);
+    row.reformat();
+    scheduleSave(500);
+  }
+
+  function scheduleSave(ms) {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(flushSaves, ms);
+  }
+
+  async function flushSaves() {
+    if (saving) { scheduleSave(300); return; }
+    const batch = [];
+    pending.forEach((fields, key) => {
+      const row = table.getRow(key);
+      if (!row) { pending.delete(key); return; }
+      const d = row.getData();
+      if (!d.id && inflight.has(key)) return; // chờ dòng mới được tạo xong rồi mới gửi tiếp (tránh tạo trùng)
+      const out = d.id ? { id: d.id, key } : { key };
+      (d.id ? Array.from(fields) : EDITABLE_FIELDS).forEach((f) => { out[f] = d[f] === undefined ? null : d[f]; });
+      batch.push(out);
+      pending.delete(key);
+      if (!d.id) inflight.add(key);
+    });
+    if (!batch.length) return;
+    saving = true;
+    ui.unsaved = pending.size + batch.length;
+    try {
+      const res = await Api.call('lines.save', { lines: batch });
+      res.forEach((r) => {
+        inflight.delete(r.key);
+        const row = table.getRow(r.key);
+        if (!row) return;
+        // giữ giá trị người dùng vừa gõ trong lúc chờ (nếu có)
+        const dirty = pending.get(r.key) || new Set();
+        const local = row.getData();
+        const merged = Object.assign({}, r.line);
+        dirty.forEach((f) => { merged[f] = local[f]; });
+        row.update(Object.assign(merged, derive(merged)));
+        row.getElement().classList.remove('save-error');
+        row.reformat();
+      });
+      historyCache = null;
+    } catch (e) {
+      batch.forEach((b) => {
+        inflight.delete(b.key);
+        const set = pending.get(b.key) || new Set();
+        Object.keys(b).forEach((f) => { if (f !== 'id' && f !== 'key') set.add(f); });
+        pending.set(b.key, set);
+        const row = table.getRow(b.key);
+        if (row) row.getElement().classList.add('save-error');
+      });
+      App.toast('Chưa lưu được: ' + e.message, 'error');
+    } finally {
+      saving = false;
+      ui.unsaved = pending.size;
+      if (pending.size && Array.from(pending.keys()).some((k) => !inflight.has(k))) {
+        // còn sửa mới trong lúc lưu → lưu tiếp; lỗi thì chờ người dùng sửa/bấm "Lưu lại"
+        const anyNew = Array.from(pending.keys()).some((k) => { const r = table.getRow(k); return r && !r.getElement().classList.contains('save-error'); });
+        if (anyNew) scheduleSave(300);
+      }
+    }
+  }
+
+  /** Chờ mọi thay đổi được lưu xong (trước khi xuất phiếu…). */
+  async function flushAll() {
+    clearTimeout(saveTimer);
+    for (let i = 0; i < 20 && (pending.size || saving); i++) {
+      if (saving) await new Promise((r) => setTimeout(r, 200));
+      else {
+        const before = pending.size;
+        await flushSaves();
+        if (pending.size && pending.size >= before) break; // lỗi lặp lại
+      }
+    }
+    if (pending.size) throw new Error('Còn ' + pending.size + ' dòng chưa lưu được — hãy sửa lỗi trước.');
+  }
+
+  function onCellEdited(cell) {
+    const field = cell.getField();
+    const row = cell.getRow();
+    const d = row.getData();
+    const changes = {};
+    if (field === 'name' && d.name) {
+      const h = history().byName[Logic.fold(d.name)];
+      if (h) ['uom', 'material_group', 'unit_price'].forEach((f) => { if ((d[f] === null || d[f] === undefined || d[f] === '') && h[f]) changes[f] = h[f]; });
+    }
+    if (field === 'project_code' && d.project_code && projectByCode[d.project_code]) changes.project_name = projectByCode[d.project_code];
+    if (field === 'project_name' && d.project_name && projectByName[d.project_name]) changes.project_code = projectByName[d.project_name];
+    Object.assign(changes, derive(Object.assign({}, d, changes)));
+    row.update(changes);
+    markDirty(row, [field].concat(Object.keys(changes).filter((f) => EDITABLE_FIELDS.includes(f))));
+    updateInfo();
+  }
+
+  // ---------- Bàn phím + dán ----------
+
+  function editCellOf(row, field) {
+    const c = row && row.getCell(field);
+    if (c) { row.scrollTo().then(() => c.edit()).catch(() => c.edit()); }
+  }
+
+  function onKeyDown(e) {
+    if (e.key !== 'Enter' || e.shiftKey || e.altKey || e.ctrlKey) return;
+    const cellEl = e.target.closest && e.target.closest('.tabulator-cell');
+    if (!cellEl || !e.target.matches('input, select, textarea')) return;
+    const field = cellEl.getAttribute('tabulator-field');
+    const rows = table.getRows('active');
+    const rowEl = cellEl.closest('.tabulator-row');
+    const idx = rows.findIndex((r) => r.getElement() === rowEl);
+    if (idx < 0) return;
+    setTimeout(() => {
+      if (idx === rows.length - 1) ui.addRow(field);
+      else editCellOf(rows[idx + 1], field);
+    }, 30);
+  }
+
+  function parseTsv(text) {
+    const rows = [];
+    let row = [''];
+    let i = 0;
+    let quoted = false;
+    text = text.replace(/\r\n?/g, '\n');
+    while (i < text.length) {
+      const ch = text[i];
+      if (quoted) {
+        if (ch === '"' && text[i + 1] === '"') { row[row.length - 1] += '"'; i += 2; continue; }
+        if (ch === '"') { quoted = false; i++; continue; }
+        row[row.length - 1] += ch; i++; continue;
+      }
+      if (ch === '"' && row[row.length - 1] === '') { quoted = true; i++; continue; }
+      if (ch === '\t') { row.push(''); i++; continue; }
+      if (ch === '\n') { rows.push(row); row = ['']; i++; continue; }
+      row[row.length - 1] += ch; i++;
+    }
+    if (row.length > 1 || row[0] !== '') rows.push(row);
+    return rows;
+  }
+
+  function onPaste(e) {
+    if (e.target.matches && e.target.matches('input, select, textarea')) return; // đang sửa 1 ô: dán bình thường
+    const text = (e.clipboardData || window.clipboardData).getData('text');
+    if (!text) return;
+    e.preventDefault();
+    const data = parseTsv(text);
+    if (!data.length) return;
+    const editCols = table.getColumns().filter((c) => EDITABLE_FIELDS.includes(c.getField()) && c.isVisible()).map((c) => c.getField());
+    let startCol = 0;
+    let rows = table.getRows('active');
+    let startRow = rows.length; // không chọn ô → thêm dòng mới ở cuối
+    if (lastCell) {
+      const ci = editCols.indexOf(lastCell.field);
+      const ri = rows.findIndex((r) => r.getData()._key === lastCell.key);
+      if (ci >= 0 && ri >= 0) { startCol = ci; startRow = ri; }
+    }
+    let skipped = 0;
+    let created = 0;
+    data.forEach((vals, i) => {
+      let row = rows[startRow + i];
+      if (!row) {
+        table.addRow(defaultsForNewRow(), false);
+        rows = table.getRows('active');
+        row = rows[rows.length - 1];
+        created++;
+      }
+      const d = row.getData();
+      const changes = {};
+      vals.forEach((raw, j) => {
+        const field = editCols[startCol + j];
+        if (!field) return;
+        if (d.request_code && !isAdmin() && LOCKED_AFTER_ISSUE.includes(field)) { skipped++; return; }
+        const v = raw.trim();
+        changes[field] = NUM_FIELDS.includes(field) ? Logic.parseNum(v)
+          : DATE_FIELDS.includes(field) ? Logic.parseDate(v) : (v || null);
+      });
+      const fields = Object.keys(changes);
+      if (!fields.length) return;
+      row.update(Object.assign(changes, derive(Object.assign({}, d, changes))));
+      markDirty(row, fields);
+    });
+    historyCache = null;
+    scheduleSave(100);
+    updateInfo();
+    App.toast('Đã dán ' + data.length + ' dòng' + (created ? ' (thêm mới ' + created + ')' : '') +
+      (skipped ? '; bỏ qua ' + skipped + ' ô bị khóa vì đã có số phiếu' : '') + '. Đang lưu…', skipped ? 'error' : 'ok');
+  }
+
+  function defaultsForNewRow() {
+    return prepare({
+      _key: newKey(), id: null, request_code: null, requester: App.user.full_name, request_date: today,
+      created_by: App.user.username, qty_received: 0, last_received_date: null,
+    });
+  }
+
+  // ---------- Bộ lọc ----------
+
+  function filterFn(d) {
+    const f = ui.f;
+    if (!d.id) return true; // dòng mới luôn hiện
+    if (f.noCode && d.request_code) return false;
+    if (f.mine && d.created_by !== App.user.username) return false;
+    if (f.code && !Logic.fold(d.request_code).includes(Logic.fold(f.code))) return false;
+    if (f.project && (d.project_code || d.project_name) !== f.project && d.project_name !== f.project) return false;
+    if (f.unit && d.unit !== f.unit) return false;
+    if (f.week && d.week !== f.week) return false;
+    if (f.month && d.month !== f.month) return false;
+    if (f.status && !Logic.matchStatus(d._st, f.status)) return false;
+    if (f.q) {
+      const words = Logic.fold(f.q).split(/\s+/).filter(Boolean);
+      if (!words.every((w) => d._s.includes(w))) return false;
+    }
+    return true;
+  }
+
+  function buildOptions(rows) {
+    const projects = new Set();
+    const units = new Set();
+    const weeks = new Set();
+    const months = new Set();
+    rows.forEach((r) => {
+      if (r.project_code || r.project_name) projects.add(r.project_code || r.project_name);
+      if (r.unit) units.add(r.unit);
+      if (r.week) weeks.add(r.week);
+      if (r.month) months.add(r.month);
+    });
+    const byYearDesc = (a, b) => { const [x1, y1] = a.split('/').map(Number); const [x2, y2] = b.split('/').map(Number); return y2 - y1 || x2 - x1; };
+    ui.opts = {
+      projects: Array.from(projects).sort((a, b) => a.localeCompare(b, 'vi')),
+      units: Array.from(units).sort((a, b) => a.localeCompare(b, 'vi')),
+      weeks: Array.from(weeks).sort(byYearDesc),
+      months: Array.from(months).sort(byYearDesc),
+    };
+  }
+
+  function updateInfo() {
+    if (!table) return;
+    const total = table.getDataCount();
+    const shown = table.getDataCount('active');
+    const sel = table.getSelectedRows().length;
+    ui.info = total + ' dòng' + (shown !== total ? ' · đang hiện ' + shown : '') + (sel ? ' · đã chọn ' + sel : '');
+  }
+
+  // ---------- Trạng thái Alpine ----------
+
+  const state = {
+    f: { q: '', noCode: false, mine: false, code: '', project: '', unit: '', week: '', month: '', status: '' },
+    opts: { projects: [], units: [], weeks: [], months: [] },
+    statusFilters: Logic.STATUS_FILTERS,
+    info: 'Đang tải…',
+    unsaved: 0,
+
+    async init() {
+      ui = this;
+      const boot = await App.init();
+      today = boot.today || today;
+      boot.catalogs.project_items.forEach((p) => {
+        const code = p.item_code || p.project_code;
+        const name = p.item_name || p.project_name;
+        if (code) projectByCode[code] = name;
+        if (name) projectByName[name] = code;
+      });
+      table = new Tabulator('#grid', {
+        index: '_key',
+        height: '100%',
+        layout: 'fitData',
+        renderVertical: 'virtual',
+        placeholder: () => placeholderText,
+        selectableRows: 'highlight', // chỉ chọn bằng ô tick, nhấp ô khác để sửa
+        columnDefaults: { headerTooltip: true, resizable: true },
+        editTriggerEvent: 'click',
+        rowFormatter,
+        columns: columns(boot.catalogs),
+      });
+      table.on('cellEdited', onCellEdited);
+      table.on('cellClick', (e, cell) => { lastCell = { key: cell.getRow().getData()._key, field: cell.getField() }; });
+      table.on('rowSelectionChanged', updateInfo);
+      table.on('dataFiltered', () => setTimeout(updateInfo));
+      const el = document.getElementById('grid');
+      el.addEventListener('keydown', onKeyDown, true);
+      el.addEventListener('paste', onPaste);
+      el.setAttribute('tabindex', '0');
+      window.addEventListener('beforeunload', (e) => { if (pending.size || inflight.size) { e.preventDefault(); e.returnValue = ''; } });
+      await new Promise((r) => table.on('tableBuilt', r));
+      await this.reload();
+    },
+
+    async reload() {
+      try {
+        const data = await Api.call('lines.list');
+        const rows = App.rowsToObjects(data).map(prepare);
+        placeholderText = 'Chưa có dòng nào khớp. Bấm "+ Thêm dòng" hoặc dán từ Excel.';
+        await table.setData(rows);
+        historyCache = null;
+        buildOptions(rows);
+        table.setFilter(filterFn);
+        updateInfo();
+        if (rows.length) table.scrollToRow(rows[rows.length - 1]._key, 'bottom', false).catch(() => {});
+      } catch (e) {
+        placeholderText = 'Lỗi tải dữ liệu: ' + e.message;
+        table.redraw(true);
+        App.toast(e.message, 'error');
+      }
+    },
+
+    applyFilters() { table.refreshFilter(); },
+    clearFilters() {
+      Object.keys(this.f).forEach((k) => { this.f[k] = typeof this.f[k] === 'boolean' ? false : ''; });
+      table.refreshFilter();
+    },
+
+    addRow(field) {
+      table.addRow(defaultsForNewRow(), false).then((row) => {
+        updateInfo();
+        editCellOf(row, typeof field === 'string' ? field : 'name');
+      });
+    },
+
+    retrySave() {
+      table.getRows().forEach((r) => r.getElement().classList.remove('save-error'));
+      flushSaves();
+    },
+
+    /** Xuất phiếu: dòng chưa có phiếu → cấp số mới; dòng đã có phiếu → in lại đúng số cũ. */
+    async issue() {
+      const rows = table.getSelectedRows();
+      if (!rows.length) { App.toast('Hãy tick chọn các dòng cần xuất phiếu.', 'error'); return; }
+      const data = rows.map((r) => r.getData());
+      const codes = Array.from(new Set(data.map((d) => d.request_code).filter(Boolean)));
+      const uncoded = data.filter((d) => !d.request_code);
+      if (codes.length && uncoded.length) {
+        App.toast('Đang chọn lẫn ' + uncoded.length + ' dòng chưa có phiếu và ' + (data.length - uncoded.length) +
+          ' dòng đã có phiếu. Hãy chỉ chọn một loại.', 'error');
+        return;
+      }
+      if (codes.length) { window.open(App.printUrl(codes), '_blank'); return; }
+      const bad = data.filter((d) => !d.name || !(d.qty_requested > 0));
+      if (bad.length) { App.toast(bad.length + ' dòng thiếu tên vật tư hoặc số lượng yêu cầu.', 'error'); return; }
+
+      const win = App.openPrintWindow();
+      if (win) win.document.write('<p style="font:16px sans-serif;padding:24px">Đang cấp số phiếu…</p>');
+      try {
+        await flushAll();
+        const ids = rows.map((r) => r.getData().id);
+        if (ids.some((id) => !id)) throw new Error('Có dòng chưa lưu xong, thử lại sau giây lát.');
+        let res;
+        try {
+          res = await Api.call('requests.issue', { line_ids: ids });
+        } catch (e) {
+          if (e.code !== 'MIXED') throw e;
+          if (!confirm(e.message)) { if (win) win.close(); return; }
+          res = await Api.call('requests.issue', { line_ids: ids, confirm_mixed: true });
+        }
+        rows.forEach((r) => {
+          const d = Object.assign({}, r.getData(), { request_code: res.code });
+          r.update(Object.assign({ request_code: res.code }, derive(d)));
+          r.deselect();
+          r.reformat();
+        });
+        App.toast('Đã cấp số phiếu ' + res.code + ' cho ' + ids.length + ' dòng.', 'ok', 6000);
+        if (win) win.location.href = App.printUrl([res.code]);
+        else window.open(App.printUrl([res.code]), '_blank');
+      } catch (e) {
+        if (win) win.close();
+        App.toast(e.message, 'error');
+      }
+    },
+
+    reprintPrompt() {
+      const s = prompt('Nhập số phiếu cần in lại (nhiều số cách nhau bằng dấu phẩy):', '');
+      if (!s) return;
+      const codes = s.split(/[,;\s]+/).map((x) => x.trim().toUpperCase()).filter(Boolean);
+      if (codes.length) window.open(App.printUrl(codes), '_blank');
+    },
+
+    async duplicate() {
+      const rows = table.getSelectedRows();
+      if (!rows.length) { App.toast('Hãy chọn dòng cần nhân bản.', 'error'); return; }
+      try {
+        await flushAll();
+        const ids = rows.map((r) => r.getData().id).filter(Boolean);
+        const copies = await Api.call('lines.duplicate', { ids });
+        await table.addData(copies.map(prepare), false);
+        rows.forEach((r) => r.deselect());
+        historyCache = null;
+        updateInfo();
+        table.scrollToRow('i' + copies[copies.length - 1].id, 'bottom', false).catch(() => {});
+        App.toast('Đã nhân bản ' + copies.length + ' dòng (xuống cuối bảng).', 'ok');
+      } catch (e) { App.toast(e.message, 'error'); }
+    },
+
+    async remove() {
+      const rows = table.getSelectedRows();
+      if (!rows.length) { App.toast('Hãy chọn dòng cần xóa.', 'error'); return; }
+      const coded = rows.filter((r) => r.getData().request_code);
+      if (coded.length) { App.toast(coded.length + ' dòng đã có số phiếu, không xóa được. Hãy bỏ chọn các dòng này.', 'error'); return; }
+      if (!confirm('Xóa ' + rows.length + ' dòng đã chọn?')) return;
+      const ids = rows.map((r) => r.getData().id).filter(Boolean);
+      try {
+        if (ids.length) await Api.call('lines.delete', { ids });
+        rows.forEach((r) => { pending.delete(r.getData()._key); r.delete(); });
+        ui.unsaved = pending.size;
+        historyCache = null;
+        updateInfo();
+        App.toast('Đã xóa ' + rows.length + ' dòng.', 'ok');
+      } catch (e) { App.toast(e.message, 'error'); }
+    },
+
+    exportExcel() {
+      const rows = table.getData('active').filter((r) => r.id);
+      App.exportExcel('vat-tu-' + today + '.xlsx', [{ name: 'Vật tư', rows, columns: EXPORT_COLUMNS }]);
+    },
+  };
+  return state;
+}

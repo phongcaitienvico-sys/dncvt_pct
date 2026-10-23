@@ -1,0 +1,129 @@
+:root {
+  --bg: #f4f5f7;
+  --panel: #ffffff;
+  --text: #1d2330;
+  --muted: #5d6677;
+  --line: #d9dde4;
+  --primary: #1f4e8c;
+  --primary-ink: #ffffff;
+  --danger: #b42318;
+  --ok: #157f3b;
+  --warn: #a15c00;
+  --st-red-bg: #fde4e1; --st-red: #a3200f;
+  --st-green-bg: #dcf3e3; --st-green: #146c33;
+  --st-yellow-bg: #fff1c2; --st-yellow: #7a5200;
+  --st-blue-bg: #e1ecfb; --st-blue: #1f4e8c;
+  --st-gray-bg: #eceef1; --st-gray: #5d6677;
+  --radius: 6px;
+  font-size: 15px;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Noto Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  line-height: 1.4;
+}
+a { color: var(--primary); }
+
+/* ---------- Thanh menu ---------- */
+#topbar {
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  background: var(--primary); color: var(--primary-ink);
+  padding: 0 16px; min-height: 48px;
+}
+#topbar .brand { font-weight: 700; letter-spacing: .5px; }
+#topbar nav { display: flex; gap: 2px; flex-wrap: wrap; flex: 1; }
+#topbar nav a {
+  color: #dfe8f5; text-decoration: none; padding: 13px 12px; border-bottom: 3px solid transparent;
+}
+#topbar nav a:hover { color: #fff; }
+#topbar nav a.active { color: #fff; border-bottom-color: #ffd34d; font-weight: 600; }
+#topbar .me { display: flex; gap: 12px; align-items: center; font-size: 14px; }
+#topbar .me .link { color: #dfe8f5; }
+
+main { padding: 12px 16px 24px; }
+h1 { font-size: 20px; margin: 4px 0 12px; }
+
+/* ---------- Nút, ô nhập ---------- */
+button, .btn {
+  font: inherit; cursor: pointer; border-radius: var(--radius);
+  border: 1px solid var(--line); background: var(--panel); color: var(--text);
+  padding: 7px 12px; text-decoration: none; display: inline-flex; align-items: center; gap: 6px;
+}
+button:hover, .btn:hover { border-color: #a9b1bf; }
+button:disabled { opacity: .5; cursor: default; }
+button.primary, .btn.primary { background: var(--primary); border-color: var(--primary); color: var(--primary-ink); font-weight: 600; }
+button.danger { color: var(--danger); }
+button.link { background: none; border: none; padding: 0; text-decoration: underline; color: var(--primary); }
+input, select, textarea {
+  font: inherit; color: var(--text); background: #fff;
+  border: 1px solid var(--line); border-radius: var(--radius); padding: 6px 8px; min-width: 0;
+}
+input:focus, select:focus, textarea:focus, button:focus-visible { outline: 2px solid #7aa7e0; outline-offset: 1px; }
+label.check { display: inline-flex; gap: 6px; align-items: center; white-space: nowrap; }
+
+.toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 8px; }
+.toolbar .spacer { flex: 1; }
+.filters {
+  display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 8px; margin-bottom: 8px;
+}
+.filters input[type=search] { width: 220px; }
+.filters select { max-width: 220px; }
+.muted { color: var(--muted); }
+.small { font-size: 13px; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; }
+
+/* ---------- Nhãn trạng thái ---------- */
+.st { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 13px; font-weight: 600; white-space: nowrap; }
+.st.red { background: var(--st-red-bg); color: var(--st-red); }
+.st.green { background: var(--st-green-bg); color: var(--st-green); }
+.st.yellow { background: var(--st-yellow-bg); color: var(--st-yellow); }
+.st.blue { background: var(--st-blue-bg); color: var(--st-blue); }
+.st.gray { background: var(--st-gray-bg); color: var(--st-gray); }
+
+.code { font-family: Consolas, 'Courier New', monospace; font-weight: 600; }
+
+/* ---------- Thông báo ---------- */
+#toasts { position: fixed; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 9999; max-width: min(420px, calc(100vw - 32px)); }
+.toast { background: #2a3140; color: #fff; padding: 10px 14px; border-radius: var(--radius); box-shadow: 0 4px 14px rgba(0,0,0,.2); }
+.toast.error { background: var(--danger); }
+.toast.ok { background: var(--ok); }
+
+/* ---------- Bảng thường ---------- */
+table.simple { border-collapse: collapse; width: 100%; background: var(--panel); }
+table.simple th, table.simple td { border: 1px solid var(--line); padding: 6px 8px; text-align: left; vertical-align: top; }
+table.simple th { background: #eef1f5; font-weight: 600; position: sticky; top: 0; }
+table.simple td.num, table.simple th.num { text-align: right; white-space: nowrap; }
+
+/* ---------- Tabulator ---------- */
+.tabulator { font-size: 14px; border-radius: var(--radius); }
+.tabulator .tabulator-header .tabulator-col { background: #eef1f5; }
+.tabulator-row .tabulator-cell.locked { background: #f5f6f8; color: #4a5160; }
+.tabulator-row.saving { box-shadow: inset 3px 0 0 #e0a100; }
+.tabulator-row.save-error { box-shadow: inset 3px 0 0 var(--danger); }
+.tabulator-row.has-code .tabulator-cell.col-code { color: var(--primary); }
+.tabulator-row.tabulator-selected { background: #d8e6fa !important; }
+
+/* ---------- Đăng nhập ---------- */
+.login-wrap { min-height: 100vh; display: grid; place-items: center; padding: 16px; }
+.login-card { width: 100%; max-width: 360px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 24px; }
+.login-card h1 { font-size: 20px; margin: 0 0 4px; }
+.login-card form { display: grid; gap: 12px; margin-top: 16px; }
+.login-card label { display: grid; gap: 4px; font-weight: 600; font-size: 14px; }
+.login-card input { padding: 10px; font-size: 16px; }
+.login-card button { justify-content: center; padding: 10px; font-size: 16px; }
+.error-text { color: var(--danger); min-height: 1.4em; }
+
+@media (max-width: 700px) {
+  :root { font-size: 16px; }
+  main { padding: 10px; }
+  #topbar { padding: 0 10px; gap: 4px; }
+  #topbar .me { width: 100%; justify-content: flex-end; padding-bottom: 6px; }
+  #topbar nav a { padding: 10px 8px; }
+  .filters input[type=search] { width: 100%; }
+}

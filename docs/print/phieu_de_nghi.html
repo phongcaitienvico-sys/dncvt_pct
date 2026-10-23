@@ -1,0 +1,71 @@
+{#
+  MẪU PHIẾU ĐỀ NGHỊ CẤP VẬT TƯ (cú pháp Jinja/Nunjucks) — MẪU TẠM, chờ Form1.
+  Biến có sẵn: docs (mỗi phần tử: request, header, pages = [[dòng]]), m (= PRINT_MAPPING.phieu_de_nghi),
+  company, val(obj, field, format), cell(line, column).
+#}
+<style>
+  .pdn .head { display: grid; grid-template-columns: 1fr auto; align-items: start; gap: 6mm; }
+  .pdn .company { font-weight: 700; text-transform: uppercase; }
+  .pdn .formcode { font-size: 9.5pt; border: 1px solid #000; padding: 2px 6px; white-space: nowrap; }
+  .pdn h1 { text-align: center; font-size: 16pt; margin: 6mm 0 1mm; letter-spacing: .5px; }
+  .pdn .so { text-align: center; margin-bottom: 4mm; }
+  .pdn .info { margin-bottom: 4mm; }
+  .pdn .info td { padding: 1.2mm 2mm 1.2mm 0; vertical-align: top; }
+  .pdn .info .lb { white-space: nowrap; width: 1%; }
+  .pdn .info .v { font-weight: 600; }
+  .pdn .cont { display: flex; justify-content: space-between; font-weight: 600; margin-bottom: 3mm; }
+  .pdn .date-line { text-align: right; font-style: italic; margin-top: 4mm; }
+</style>
+{% for d in docs %}
+  {% for page in d.pages %}
+  <section class="sheet pdn">
+    {% if loop.first %}
+      <div class="head">
+        <div>
+          <div class="company">{{ company.name }}</div>
+          {% if company.address %}<div>{{ company.address }}</div>{% endif %}
+        </div>
+        {% if m.form_code %}<div class="formcode">{{ m.form_code }}</div>{% endif %}
+      </div>
+      <h1>{{ m.title }}</h1>
+      <div class="so">Số: <b>{{ d.request.code }}</b></div>
+      <table class="info">
+        {% for row in m.header | batch(2) %}
+        <tr>
+          {% for h in row %}
+            <td class="lb">{{ h.label }}:</td>
+            <td class="v">{{ val(d, h.field, h.format) }}</td>
+          {% endfor %}
+        </tr>
+        {% endfor %}
+      </table>
+    {% else %}
+      <div class="cont"><span>{{ m.title }} (tiếp theo)</span><span>Số: {{ d.request.code }}</span></div>
+    {% endif %}
+
+    <table class="items">
+      <colgroup>{% for c in m.columns %}<col style="{% if c.width %}width:{{ c.width }}{% endif %}">{% endfor %}</colgroup>
+      <thead><tr>{% for c in m.columns %}<th>{{ c.label }}</th>{% endfor %}</tr></thead>
+      <tbody>
+        {% for l in page %}
+        <tr>{% for c in m.columns %}<td class="{{ c.align }}">{{ cell(l, c) }}</td>{% endfor %}</tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    {% if loop.last %}
+      <div class="date-line">{{ d.date_line }}</div>
+      <div class="signs" style="grid-template-columns: repeat({{ m.signatures.length }}, 1fr)">
+        {% for s in m.signatures %}
+          <div>
+            <div class="t">{{ s.title }}</div>
+            <div class="hint">(Ký, ghi rõ họ tên)</div>
+            <div class="n">{{ val(d, s.name_field) if s.name_field else '' }}</div>
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+    <div class="pageno">{{ d.request.code }} · Trang {{ loop.index }}/{{ loop.length }}</div>
+  </section>
+  {% endfor %}
+{% endfor %}

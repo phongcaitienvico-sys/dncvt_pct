@@ -1,0 +1,15 @@
+# Dữ liệu thật — KHÔNG đưa lên GitHub (repo GitHub Pages là public)
+samples/*
+!samples/README.md
+out/
+dev/data/
+dist/
+
+node_modules/
+__pycache__/
+.pytest_cache/
+*.pyc
+.venv/
+.env
+.clasp.json
+.clasprc.json

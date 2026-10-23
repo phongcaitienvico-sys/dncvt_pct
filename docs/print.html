@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>In phiếu</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:ital,wght@0,400;0,600;0,700;1,400&display=swap&subset=vietnamese" rel="stylesheet">
+  <link rel="stylesheet" href="css/app.css">
+  <link rel="stylesheet" href="css/print.css">
+  <script src="https://cdn.jsdelivr.net/npm/nunjucks@3.2.4/browser/nunjucks.min.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/logic.js"></script>
+  <script src="js/app.js"></script>
+  <script src="js/print_mapping.js"></script>
+</head>
+<body class="print">
+  <div class="print-toolbar">
+    <button class="primary" type="button" id="btn-print">In / Lưu PDF</button>
+    <label>Số dòng mỗi trang
+      <select id="rpp"></select>
+    </label>
+    <span class="muted small">Muốn lưu file: chọn máy in "Lưu dưới dạng PDF" / "Save as PDF". Bỏ tick "Đầu trang và chân trang" để phiếu sạch.</span>
+    <span class="spacer"></span>
+    <a href="lines.html">← Bảng vật tư</a>
+  </div>
+  <div id="msg">Đang tải phiếu…</div>
+  <div id="out"></div>
+
+  <script>
+    (async function () {
+      const params = new URLSearchParams(location.search);
+      const tpl = params.get('tpl') || 'phieu_de_nghi';
+      const codes = (params.get('codes') || '').split(',').map((s) => s.trim()).filter(Boolean);
+      const M = window.PRINT_MAPPING;
+      const msg = document.getElementById('msg');
+      if (!M[tpl] || !/^[a-z_]+$/.test(tpl)) { msg.textContent = 'Mẫu in không hợp lệ: ' + tpl; return; }
+      if (!codes.length) { msg.textContent = 'Chưa có số phiếu.'; return; }
+      const m = M[tpl];
+
+      // Số dòng mỗi trang: mặc định theo mapping, người dùng chọn 10–40 (nhớ trên máy này)
+      const rppKey = 'ncvt_rpp_' + tpl;
+      let rpp = m.rows_per_page || 20;
+      try { rpp = Number(localStorage.getItem(rppKey)) || rpp; } catch (e) { /* bỏ qua */ }
+      const sel = document.getElementById('rpp');
+      [10, 15, 20, 25, 30, 35, 40].concat([rpp]).filter((v, i, a) => a.indexOf(v) === i).sort((a, b) => a - b)
+        .forEach((n) => sel.add(new Option(n, n, false, n === rpp)));
+
+      let boot, data, src;
+      try {
+        boot = await App.init();
+        [data, src] = await Promise.all([
+          Api.call('requests.get', { codes }),
+          fetch('print/' + tpl + '.html', { cache: 'no-cache' }).then((r) => { if (!r.ok) throw new Error('Không tải được mẫu ' + tpl); return r.text(); }),
+        ]);
+      } catch (e) { msg.textContent = e.message; return; }
+
+      const fmt = (v, format) => {
+        if (v === null || v === undefined || v === '') return '';
+        if (format === 'date') return Logic.fmtDate(v);
+        if (format === 'num') return Logic.fmtNum(v);
+        if (format === 'money') return Logic.fmtNum(v, 0);
+        return v;
+      };
+      const get = (obj, path) => String(path || '').split('.').reduce((o, k) => (o === null || o === undefined ? undefined : o[k]), obj);
+      const val = (obj, path, format) => fmt(get(obj, path), format);
+      const cell = (line, c) => (c.field === 'stt' ? line._stt : fmt(get(line, c.field), c.format));
+      const chunk = (arr, n, minRows) => {
+        const rows = arr.slice();
+        while (minRows && rows.length < minRows) rows.push({});
+        const pages = [];
+        for (let i = 0; i < rows.length; i += n) pages.push(rows.slice(i, i + n));
+        return pages.length ? pages : [[]];
+      };
+      const dateLine = (iso) => {
+        const p = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || '');
+        return p ? 'Ngày ' + p[3] + ' tháng ' + p[2] + ' năm ' + p[1] : 'Ngày …… tháng …… năm ……';
+      };
+      const withStt = (lines) => lines.map((l, i) => Object.assign({}, l, { _stt: i + 1, amount: Logic.amount(l) }));
+
+      // Chuẩn bị dữ liệu cho từng mẫu
+      const PREPARE = {
+        phieu_de_nghi(n) {
+          return data.map((x) => {
+            const header = Object.assign({}, x.request.header_json || {});
+            header.project = [header.project_code, header.project_name].filter(Boolean).join(' — ');
+            return { request: x.request, header, pages: chunk(withStt(x.lines), n, m.min_rows), date_line: dateLine(header.request_date) };
+          });
+        },
+        don_dat_hang(n) {
+          const bySupplier = {};
+          data.forEach((x) => x.lines.forEach((l) => {
+            const k = l.supplier || '(Chưa có nhà cung cấp)';
+            (bySupplier[k] = bySupplier[k] || []).push(l);
+          }));
+          const catalog = boot.catalogs.suppliers;
+          return Object.keys(bySupplier).sort((a, b) => a.localeCompare(b, 'vi')).map((k) => {
+            const info = catalog.find((s) => s.code === k || s.name === k) || { name: k };
+            const lines = withStt(bySupplier[k]);
+            return {
+              supplier: info, codes: codes.join(', '), pages: chunk(lines, n, m.min_rows),
+              total: lines.reduce((s, l) => s + l.amount, 0), date_line: dateLine(boot.today),
+            };
+          });
+        },
+        phieu_ban_giao(n) {
+          const rows = data.map((x, i) => {
+            const h = x.request.header_json || {};
+            return {
+              _stt: i + 1, code: x.request.code, unit: h.unit, line_count: x.lines.length,
+              project: [h.project_code, h.project_name].filter(Boolean).join(' — '),
+              issued_date: String(x.request.issued_at || '').slice(0, 10),
+            };
+          });
+          return [{ pages: chunk(rows, n, m.min_rows), date_line: dateLine(boot.today) }];
+        },
+      };
+
+      const env = new nunjucks.Environment(null, { autoescape: true });
+      function render() {
+        const n = Number(sel.value);
+        const docs = PREPARE[tpl](n);
+        document.getElementById('out').innerHTML = env.renderString(src, {
+          docs, m, company: M.company, val, cell, fmt, codes,
+        });
+        msg.style.display = 'none';
+      }
+      sel.addEventListener('change', () => { try { localStorage.setItem(rppKey, sel.value); } catch (e) { /* bỏ qua */ } render(); });
+      document.getElementById('btn-print').addEventListener('click', () => window.print());
+      document.title = (tpl === 'phieu_de_nghi' ? '' : tpl + ' ') + codes.join('_');
+      try { render(); } catch (e) { msg.textContent = 'Lỗi mẫu in: ' + e.message; }
+    })();
+  </script>
+</body>
+</html>

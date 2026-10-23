@@ -150,3 +150,5 @@ table.simple td.num, table.simple th.num { text-align: right; white-space: nowra
 table.items-form input { width: 100%; padding: 5px 6px; }
 table.items-form td, table.items-form th { padding: 3px 4px; }
 @media (max-width: 700px) { .fgrid { grid-template-columns: 1fr 1fr; } .fgrid label.wide { grid-column: span 2; } }
+table.items-form { min-width: 1700px; }
+table.items-form th { white-space: nowrap; }

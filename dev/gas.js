@@ -95,6 +95,15 @@ function makeJsonStore(file) {
       const t = tab(name);
       return { headers: t.headers.slice(), rows: t.rows.map((r) => t.headers.map((_, i) => (r[i] === undefined ? '' : r[i]))) };
     },
+    readCol(name, field) {
+      const t = tab(name);
+      const c = t.headers.indexOf(field);
+      return c < 0 ? [] : t.rows.map((r) => (r[c] === undefined ? '' : r[c]));
+    },
+    readRowsAt(name, indexes) {
+      const t = tab(name);
+      return { headers: t.headers.slice(), rows: indexes.map((i) => t.headers.map((_, k) => (t.rows[i][k] === undefined ? '' : t.rows[i][k]))) };
+    },
     findRows(name, ids) {
       const t = tab(name);
       const want = new Set(ids.map(String));

@@ -33,6 +33,7 @@
       <button type="button" @click="duplicate()">Nhân bản dòng</button>
       <button type="button" class="danger" @click="remove()">Xóa dòng</button>
       <button type="button" @click="exportExcel()">Xuất Excel</button>
+      <button type="button" @click="reload()" title="Tải thay đổi mới từ máy chủ (nhanh, chỉ phần đổi)">↻ Cập nhật</button>
       <span class="spacer"></span>
       <span class="unsaved" x-show="unsaved > 0">
         <span x-text="unsaved"></span> dòng chưa lưu
@@ -86,26 +87,42 @@
             <label>Ngày yêu cầu <input type="date" x-model="fm.c.request_date"></label>
             <label>Ngày cần có <input type="date" x-model="fm.c.need_date"></label>
             <label class="wide">Mục đích sử dụng <input list="dl-purpose" x-model="fm.c.purpose"></label>
+            <label>Tên thiết bị <input list="dl-equip" x-model="fm.c.equipment_name"></label>
+            <label>Nhóm VT <input list="dl-group" x-model="fm.c.material_group"></label>
             <label>Người mua / NCC <input list="dl-sup" x-model="fm.c.supplier"></label>
           </div>
-          <div class="muted small" style="margin:4px 0 8px">Các thông tin trên áp cho mọi dòng bên dưới. Dòng nào cần khác thì sửa sau trong bảng.</div>
+          <div class="muted small" style="margin:4px 0 8px">Thông tin trên áp cho mọi dòng. Ở bảng bên dưới, ô nào để trống sẽ lấy giá trị chung; điền riêng thì dòng đó dùng giá trị riêng (cuộn ngang để xem đủ cột).</div>
 
+          <div style="overflow:auto">
           <table class="simple items-form">
-            <thead><tr><th style="width:34px">#</th><th>Tên vật tư *</th><th style="width:90px">ĐVT</th><th style="width:90px">SL *</th><th style="width:90px">Tồn kho</th><th style="width:170px">Ghi chú</th><th style="width:34px"></th></tr></thead>
+            <thead><tr>
+              <th style="width:30px">#</th><th style="min-width:230px">Tên vật tư *</th><th style="width:80px">ĐVT</th><th style="width:120px">Nhóm VT</th>
+              <th style="width:100px">SL yêu cầu *</th><th style="width:90px">SL tồn kho</th><th style="width:130px">Ngày cần có</th>
+              <th style="min-width:190px">Hạng mục</th><th style="min-width:170px">Mục đích sử dụng</th><th style="min-width:140px">Tên thiết bị</th>
+              <th style="width:110px">NCC / Người mua</th><th style="width:100px">Đơn giá</th><th style="min-width:130px">Ghi chú</th><th style="width:30px"></th>
+            </tr></thead>
             <tbody>
               <template x-for="(it, i) in fm.items" :key="it.k">
                 <tr>
                   <td x-text="i + 1"></td>
                   <td><input list="dl-name" x-model="it.name" @change="formName(it)" :id="'fm-name-' + i" @keydown.enter.prevent="formEnter(i)" placeholder="Tên vật tư"></td>
                   <td><input list="dl-uom" x-model="it.uom"></td>
+                  <td><input list="dl-group" x-model="it.material_group" :placeholder="fm.c.material_group"></td>
                   <td><input x-model="it.qty_requested" inputmode="decimal" @keydown.enter.prevent="formEnter(i)"></td>
                   <td><input x-model="it.qty_on_hand" inputmode="decimal"></td>
+                  <td><input type="date" x-model="it.need_date"></td>
+                  <td><input list="dl-project" x-model="it.project" :placeholder="fm.c.project"></td>
+                  <td><input list="dl-purpose" x-model="it.purpose" :placeholder="fm.c.purpose"></td>
+                  <td><input list="dl-equip" x-model="it.equipment_name" :placeholder="fm.c.equipment_name"></td>
+                  <td><input list="dl-sup" x-model="it.supplier" :placeholder="fm.c.supplier"></td>
+                  <td><input x-model="it.unit_price" inputmode="decimal"></td>
                   <td><input x-model="it.note"></td>
                   <td><button type="button" class="link danger" @click="formRemove(i)" title="Xóa dòng">✕</button></td>
                 </tr>
               </template>
             </tbody>
           </table>
+          </div>
           <div class="toolbar" style="margin-top:8px">
             <button type="button" @click="formAddRow(1)">+ Thêm dòng</button>
             <button type="button" @click="formAddRow(5)">+ 5 dòng</button>
@@ -134,6 +151,8 @@
     <datalist id="dl-req"><template x-for="u in dl.req" :key="u"><option :value="u"></option></template></datalist>
     <datalist id="dl-purpose"><template x-for="u in dl.purpose" :key="u"><option :value="u"></option></template></datalist>
     <datalist id="dl-sup"><template x-for="u in dl.sup" :key="u"><option :value="u"></option></template></datalist>
+    <datalist id="dl-equip"><template x-for="u in dl.equip" :key="u"><option :value="u"></option></template></datalist>
+    <datalist id="dl-group"><template x-for="u in dl.groups" :key="u"><option :value="u"></option></template></datalist>
     <datalist id="dl-name"><template x-for="u in dl.name" :key="u"><option :value="u"></option></template></datalist>
     </div>
     <div id="grid"></div>

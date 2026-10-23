@@ -295,6 +295,30 @@ function sheetStore_() {
       cache[name] = { headers: values[0].map(String), rows: values.slice(1) };
       return cache[name];
     },
+    /** Đọc 1 cột (rất rẻ so với đọc cả bảng). Trả mảng giá trị theo thứ tự dòng. */
+    readCol: function (name, field) {
+      const sh = sheet(name);
+      const headers = headersOf(sh);
+      const col = headers.indexOf(field) + 1;
+      const lr = sh.getLastRow();
+      if (!col || lr < 2) return [];
+      return sh.getRange(2, col, lr - 1, 1).getValues().map(function (r) { return r[0]; });
+    },
+    /** Đọc các dòng theo chỉ số (0 = dòng dữ liệu đầu); gom dòng liên tiếp để ít lệnh gọi. */
+    readRowsAt: function (name, indexes) {
+      const sh = sheet(name);
+      const headers = headersOf(sh);
+      const out = [];
+      let i = 0;
+      while (i < indexes.length) {
+        let j = i;
+        while (j + 1 < indexes.length && indexes[j + 1] === indexes[j] + 1) j++;
+        const vals = sh.getRange(indexes[i] + 2, 1, j - i + 1, headers.length).getValues();
+        vals.forEach(function (v) { out.push(v); });
+        i = j + 1;
+      }
+      return { headers: headers, rows: out };
+    },
     findRows: function (name, ids) {
       const sh = sheet(name);
       const headers = headersOf(sh);

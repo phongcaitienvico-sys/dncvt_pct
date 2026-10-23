@@ -180,3 +180,43 @@ function apiLinesCreate_(p, ctx) {
   const agg = receiptAgg_();
   return { code: code, lines: rows.map(function (r) { return withReceipts_(r, agg); }) };
 }
+
+/**
+ * Đồng bộ danh sách dòng cho client có bản lưu sẵn: chỉ gửi các dòng đổi từ `since`
+ * (+ danh sách id hiện có để client biết dòng nào đã bị xóa, + tổng nhận hàng của mọi dòng).
+ * since = null → gửi tất cả. Chỉ đọc 2 cột (id, updated_at) rồi đọc đúng các dòng đổi nên nhanh hơn lines.list nhiều.
+ */
+function apiLinesSync_(p) {
+  const nowIso = nowStr_();
+  let threshold = null;
+  if (p.since) {
+    const t = new Date(String(p.since) + '+07:00');
+    if (isNaN(t.getTime())) fail_('Mốc đồng bộ không hợp lệ');
+    // lùi 2 phút để không sót dòng ghi sát thời điểm đồng bộ trước
+    threshold = Utilities.formatDate(new Date(t.getTime() - 120000), CONFIG.TIMEZONE, "yyyy-MM-dd'T'HH:mm:ss");
+  }
+  const s = store_();
+  const idCol = s.readCol('lines', 'id');
+  const ids = [];
+  const changed = [];
+  if (threshold === null) {
+    for (let i = 0; i < idCol.length; i++) { if (idCol[i] !== '' && idCol[i] !== null) { ids.push(Number(idCol[i])); changed.push(i); } }
+  } else {
+    const upd = s.readCol('lines', 'updated_at').map(function (v) { return v instanceof Date ? Utilities.formatDate(v, CONFIG.TIMEZONE, "yyyy-MM-dd'T'HH:mm:ss") : String(v || ''); });
+    for (let i = 0; i < idCol.length; i++) {
+      if (idCol[i] === '' || idCol[i] === null) continue;
+      ids.push(Number(idCol[i]));
+      if (upd[i] >= threshold) changed.push(i);
+    }
+  }
+  const cols = SCHEMA.lines.map(function (c) { return c[0]; });
+  const got = changed.length ? s.readRowsAt('lines', changed) : { headers: [], rows: [] };
+  const rows = got.rows.map(function (r) {
+    const o = rowToObj_('lines', got.headers, r);
+    return cols.map(function (c) { return o[c]; });
+  });
+  const recv = {};
+  const agg = receiptAgg_();
+  Object.keys(agg).forEach(function (k) { recv[k] = [Math.round(agg[k].qty * 1000) / 1000, agg[k].last]; });
+  return { now: nowIso, full: threshold === null, columns: cols, rows: rows, ids: ids, recv: recv };
+}

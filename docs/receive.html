@@ -107,8 +107,8 @@
           this.today = boot.today || this.today;
           this.isAdmin = App.user.role === 'admin';
           try {
-            const data = await Api.call('lines.list');
-            this.lines = App.rowsToObjects(data).map((l) => this.prep(l));
+            const res = await App.loadLines((cached) => { this.lines = cached.map((l) => this.prep(Object.assign({}, l))); this.loading = false; });
+            this.lines = res.objects.map((l) => this.prep(Object.assign({}, l)));
           } catch (e) { App.toast(e.message, 'error'); }
           this.loading = false;
         },

@@ -9,6 +9,7 @@ function routes_() {
     'auth.changePassword': { write: true, fn: apiChangePassword_ },
     'bootstrap': { fn: apiBootstrap_ },
     'lines.list': { fn: apiLinesList_ },
+    'lines.sync': { fn: apiLinesSync_ },
     'lines.save': { write: true, fn: apiLinesSave_ },
     'lines.create': { write: true, fn: apiLinesCreate_ },
     'lines.delete': { write: true, fn: apiLinesDelete_ },

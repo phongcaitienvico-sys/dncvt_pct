@@ -9,11 +9,43 @@
     del(k) { try { localStorage.removeItem(k); } catch (e) { /* bỏ qua */ } },
   };
 
+  // ---------- Bản lưu dữ liệu trong trình duyệt (IndexedDB) để mở trang là có dữ liệu ngay ----------
+  const idb = {
+    db: null,
+    open() {
+      if (idb.db) return idb.db;
+      idb.db = new Promise((resolve) => {
+        try {
+          const rq = indexedDB.open('ncvt', 1);
+          rq.onupgradeneeded = () => rq.result.createObjectStore('kv');
+          rq.onsuccess = () => resolve(rq.result);
+          rq.onerror = () => resolve(null);
+        } catch (e) { resolve(null); }
+      });
+      return idb.db;
+    },
+    async run(mode, fn) {
+      const db = await idb.open();
+      if (!db) return null;
+      return new Promise((resolve) => {
+        try {
+          const tx = db.transaction('kv', mode);
+          const rq = fn(tx.objectStore('kv'));
+          tx.oncomplete = () => resolve(rq ? rq.result : null);
+          tx.onerror = tx.onabort = () => resolve(null);
+        } catch (e) { resolve(null); }
+      });
+    },
+    get: (k) => idb.run('readonly', (st) => st.get(k)),
+    set: (k, v) => idb.run('readwrite', (st) => st.put(v, k)),
+    clear: () => idb.run('readwrite', (st) => st.clear()),
+  };
+
   const Api = {
     token: () => storage.get(TOKEN_KEY),
     user() { try { return JSON.parse(storage.get(USER_KEY) || 'null'); } catch (e) { return null; } },
     saveLogin(data) { storage.set(TOKEN_KEY, data.token); storage.set(USER_KEY, JSON.stringify(data.user)); },
-    logout() { storage.del(TOKEN_KEY); storage.del(USER_KEY); },
+    logout() { storage.del(TOKEN_KEY); storage.del(USER_KEY); idb.clear(); },
 
     async call(action, params) {
       let res;
@@ -68,10 +100,26 @@
       App.user = Api.user();
       if (!Api.token() || !App.user) { App.goLogin(); return new Promise(() => {}); }
       App.renderNav();
-      App.boot = await Api.call('bootstrap');
-      App.user = App.boot.user; // quyền mới nhất từ máy chủ
-      Api.saveLogin({ token: Api.token(), user: App.user });
-      App.renderNav();
+      const bootKey = 'boot:' + App.user.username;
+      const refresh = async () => {
+        const fresh = await Api.call('bootstrap');
+        fresh.today = Logic.todayIso();
+        idb.set(bootKey, fresh);
+        if (fresh.user.role !== App.user.role) { Api.saveLogin({ token: Api.token(), user: fresh.user }); }
+        App.user = fresh.user; // quyền mới nhất từ máy chủ
+        App.boot = fresh;
+        App.renderNav();
+        return fresh;
+      };
+      // Danh mục ít đổi: có bản lưu thì dùng ngay, làm mới ngầm (trang admin luôn chờ bản mới để kiểm tra quyền)
+      const cached = opts.admin ? null : await idb.get(bootKey);
+      if (cached) {
+        cached.today = Logic.todayIso();
+        App.boot = cached;
+        refresh().catch(() => { /* lỗi mạng: tiếp tục dùng bản lưu; hết phiên thì Api.call tự chuyển về đăng nhập */ });
+        return App.boot;
+      }
+      await refresh();
       if (opts.admin && App.user.role !== 'admin') { location.href = 'lines.html'; return new Promise(() => {}); }
       return App.boot;
     },
@@ -114,6 +162,46 @@
       t.textContent = msg;
       box.appendChild(t);
       setTimeout(() => t.remove(), ms || (type === 'error' ? 7000 : 3000));
+    },
+
+    /**
+     * Tải danh sách dòng vật tư nhanh: có bản lưu → gọi onCached(objects) NGAY, rồi chỉ tải phần thay đổi (lines.sync).
+     * Trả {objects, diff}: diff = null khi không có bản lưu (tải đầy đủ), ngược lại {upsert: [object], removed: [id]}.
+     */
+    async loadLines(onCached) {
+      const key = 'lines:' + (App.user ? App.user.username : '');
+      const cache = await idb.get(key);
+      const byId = new Map();
+      if (cache && cache.objs) {
+        cache.objs.forEach((o) => byId.set(o.id, o));
+        if (onCached) onCached(Array.from(byId.values()));
+      }
+      const res = await Api.call('lines.sync', { since: cache && cache.now ? cache.now : null });
+      const upsertIds = new Set();
+      res.rows.forEach((r) => {
+        const o = {};
+        res.columns.forEach((c, i) => { o[c] = r[i]; });
+        byId.set(o.id, Object.assign(byId.get(o.id) || {}, o));
+        upsertIds.add(o.id);
+      });
+      const alive = new Set(res.ids);
+      const removed = [];
+      Array.from(byId.keys()).forEach((id) => { if (!alive.has(id)) { byId.delete(id); removed.push(id); } });
+      byId.forEach((o, id) => {
+        const rv = res.recv[id];
+        const qty = rv ? rv[0] : 0;
+        const last = rv ? rv[1] : null;
+        if (o.qty_received !== qty || (o.last_received_date || null) !== (last || null) || !('qty_received' in o)) {
+          o.qty_received = qty; o.last_received_date = last || null;
+          upsertIds.add(id);
+        }
+      });
+      const objects = Array.from(byId.values()).sort((a, b) => a.id - b.id);
+      idb.set(key, { now: res.now, objs: objects });
+      return {
+        objects,
+        diff: cache ? { upsert: Array.from(upsertIds).filter((id) => byId.has(id)).map((id) => byId.get(id)), removed } : null,
+      };
     },
 
     /** Chuyển kết quả lines.list (cột + mảng) thành mảng object. */

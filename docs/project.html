@@ -84,7 +84,7 @@
             ],
           });
           try {
-            all = App.rowsToObjects(await Api.call('lines.list')).map((l) => Object.assign(l, {
+            all = (await App.loadLines()).objects.map((l) => Object.assign({}, l, {
               _st: Logic.computeStatus(l, this.today), amount: Logic.amount(l), qty_missing: Logic.qtyMissing(l),
               _pkey: l.project_code || l.project_name || '',
             }));

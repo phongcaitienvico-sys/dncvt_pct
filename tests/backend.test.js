@@ -223,3 +223,33 @@ test('form thêm nhiều vật tư: tạo dòng + cấp phiếu trong một lệ
   const header = b.call('requests.get', { codes: ['YC2026-295'] }, user)[0].request.header_json;
   assert.equal(header.unit, 'Phòng Kỹ thuật');
 });
+
+test('lines.sync: lần đầu đủ dòng, lần sau chỉ phần đổi + id còn lại + tổng nhận hàng', () => {
+  const { b, user } = fresh();
+  const lines = addLines(b, user, 4, { qty_requested: 5 });
+  const first = b.call('lines.sync', {}, user);
+  assert.equal(first.full, true);
+  assert.equal(first.rows.length, 4);
+  assert.deepEqual(first.ids, lines.map((l) => l.id));
+
+  // trong vòng 2 phút sau lần ghi vẫn gửi lại (biên an toàn); sau đó không đổi gì → không có dòng nào, vẫn trả đủ id
+  b.setNow('2026-10-23T08:01:00+07:00');
+  assert.equal(b.call('lines.sync', { since: first.now }, user).rows.length, 4);
+  b.setNow('2026-10-23T09:00:00+07:00');
+  const none = b.call('lines.sync', { since: '2026-10-23T08:30:00' }, user);
+  assert.equal(none.rows.length, 0);
+  assert.equal(none.ids.length, 4);
+
+  // sửa 1 dòng, xóa 1 dòng, nhận hàng 1 dòng
+  b.setNow('2026-10-23T09:30:00+07:00');
+  b.call('lines.save', { lines: [{ id: lines[0].id, purpose: 'Mới sửa' }] }, user);
+  b.call('lines.delete', { ids: [lines[3].id] }, user);
+  b.call('receipts.add', { line_id: lines[1].id, qty: 2, received_date: '2026-10-23' }, user);
+  const delta = b.call('lines.sync', { since: none.now }, user);
+  const pi = delta.columns.indexOf('purpose');
+  assert.equal(delta.full, false);
+  assert.deepEqual(delta.rows.map((r) => r[pi]), ['Mới sửa']);
+  assert.deepEqual(delta.ids, [lines[0].id, lines[1].id, lines[2].id]); // dòng 4 đã xóa
+  assert.deepEqual(delta.recv[lines[1].id], [2, '2026-10-23']);
+  assert.throws(() => b.call('lines.sync', { since: 'không phải ngày' }, user), /không hợp lệ/);
+});

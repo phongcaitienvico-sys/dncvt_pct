@@ -32,6 +32,10 @@ function linesPage() {
   let historyCache = null;
   let placeholderText = 'Đang tải dữ liệu…';
   let formKey = 0;
+  const newFormItem = () => ({
+    k: ++formKey, name: '', uom: '', material_group: '', qty_requested: '', qty_on_hand: '', need_date: '', project: '',
+    purpose: '', equipment_name: '', supplier: '', unit_price: '', note: '',
+  });
   let formProjects = new Map();
   let ui = null; // proxy Alpine (gán trong init) — ghi qua đây thì giao diện mới cập nhật
   let projectByCode = {};
@@ -444,6 +448,28 @@ function linesPage() {
     table.restoreRedraw();
   }
 
+  /** Áp phần thay đổi từ máy chủ lên bảng đang hiển thị (không đụng dòng đang có sửa chưa lưu). */
+  async function applyDiff(diff) {
+    const byId = new Map();
+    table.getData().forEach((d) => { if (d.id) byId.set(d.id, d._key); });
+    const up = [];
+    diff.upsert.forEach((o) => {
+      const key = byId.get(o.id) || ('i' + o.id);
+      if (pending.has(key) || inflight.has(key)) return;
+      up.push(prepare(Object.assign({}, o, { _key: key })));
+    });
+    const rm = diff.removed.map((id) => byId.get(id)).filter(Boolean);
+    try {
+      if (up.length) await table.updateOrAddData(up);
+      if (rm.length) await table.deleteRow(rm);
+    } catch (e) { console.warn('applyDiff', e); }
+    if (up.length || rm.length) {
+      historyCache = null;
+      buildOptions(table.getData());
+      updateInfo();
+    }
+  }
+
   // ---------- Trạng thái Alpine ----------
 
   const state = {
@@ -455,7 +481,7 @@ function linesPage() {
 
     // ---------- Form thêm nhiều vật tư ----------
     fm: { open: false, busy: false, error: '', pasteOpen: false, paste: '', c: {}, items: [] },
-    dl: { units: [], projects: [], uoms: [], loc: [], req: [], purpose: [], sup: [], name: [] },
+    dl: { units: [], projects: [], uoms: [], loc: [], req: [], purpose: [], sup: [], name: [], equip: [], groups: [] },
 
     openForm() {
       const cat = App.boot.catalogs;
@@ -470,10 +496,11 @@ function linesPage() {
       this.dl = {
         units: cat.units.map((u) => u.name), projects: Array.from(projects.keys()), uoms: cat.uoms.map((u) => u.name),
         loc: h.delivery_location, req: h.requester, purpose: h.purpose, sup: h.supplier, name: h.name,
+        equip: h.equipment_name, groups: cat.material_groups.map((g) => g.name),
       };
       if (!this.fm.items.length) { this.fm.items = []; this.formAddRow(3); }
       this.fm.c = Object.assign({
-        unit: '', project: '', delivery_location: '', requester: App.user.full_name, request_date: today, need_date: '', purpose: '', supplier: '',
+        unit: '', project: '', delivery_location: '', requester: App.user.full_name, request_date: today, need_date: '', purpose: '', supplier: '', equipment_name: '', material_group: '',
       }, this.fm.c.unit !== undefined ? this.fm.c : {});
       this.fm.error = '';
       this.fm.open = true;
@@ -485,7 +512,7 @@ function linesPage() {
       if (filled && !confirm('Đóng form? Các vật tư đang nhập chưa lưu sẽ giữ lại cho lần mở sau.')) return;
       this.fm.open = false;
     },
-    formAddRow(n) { for (let i = 0; i < n; i++) this.fm.items.push({ k: ++formKey, name: '', uom: '', qty_requested: '', qty_on_hand: '', note: '' }); },
+    formAddRow(n) { for (let i = 0; i < n; i++) this.fm.items.push(newFormItem()); },
     formRemove(i) { this.fm.items.splice(i, 1); if (!this.fm.items.length) this.formAddRow(1); },
     formEnter(i) {
       if (i === this.fm.items.length - 1) this.formAddRow(1);
@@ -502,7 +529,7 @@ function linesPage() {
       // bỏ các dòng trống đang có ở cuối rồi nối thêm
       while (this.fm.items.length && !(this.fm.items[this.fm.items.length - 1].name || '').trim()) this.fm.items.pop();
       rows.forEach((r) => {
-        const it = { k: ++formKey, name: r[0].trim(), uom: (r[1] || '').trim(), qty_requested: (r[2] || '').trim(), qty_on_hand: '', note: (r[3] || '').trim() };
+        const it = Object.assign(newFormItem(), { name: r[0].trim(), uom: (r[1] || '').trim(), qty_requested: (r[2] || '').trim(), note: (r[3] || '').trim() });
         this.formName(it);
         this.fm.items.push(it);
       });
@@ -520,17 +547,26 @@ function linesPage() {
         if (!name) { this.fm.error = 'Dòng ' + (i + 1) + ': thiếu tên vật tư.'; return; }
         if (!(qty > 0)) { this.fm.error = 'Dòng ' + (i + 1) + ' (' + name + '): nhập số lượng lớn hơn 0.'; return; }
         const hit = history().byName[Logic.fold(name)] || {};
-        items.push({
-          name, uom: (it.uom || '').trim() || hit.uom || null, qty_requested: qty, qty_on_hand: Logic.parseNum(it.qty_on_hand),
-          note: (it.note || '').trim() || null, material_group: hit.material_group || null, unit_price: hit.unit_price || null,
-        });
+        const t = (v) => (v || '').trim() || null;
+        const price = Logic.parseNum(it.unit_price);
+        const row = {
+          name, uom: t(it.uom) || hit.uom || null, qty_requested: qty, qty_on_hand: Logic.parseNum(it.qty_on_hand), note: t(it.note),
+          material_group: t(it.material_group) || (c.material_group ? null : hit.material_group) || null,
+          unit_price: price !== null ? price : (hit.unit_price || null),
+          need_date: it.need_date || null, purpose: t(it.purpose), equipment_name: t(it.equipment_name), supplier: t(it.supplier),
+        };
+        if (t(it.project)) {
+          const pj = formProjects.get(t(it.project)) || { code: null, name: t(it.project) };
+          row.project_code = pj.code; row.project_name = pj.name;
+        }
+        items.push(row);
       }
       if (!items.length) { this.fm.error = 'Chưa có vật tư nào.'; return; }
       const proj = formProjects.get((c.project || '').trim()) || { code: null, name: (c.project || '').trim() || null };
       const common = {
         unit: c.unit || null, project_code: proj.code, project_name: proj.name, delivery_location: c.delivery_location || null,
         requester: c.requester || null, request_date: c.request_date || null, need_date: c.need_date || null,
-        purpose: c.purpose || null, supplier: c.supplier || null,
+        purpose: c.purpose || null, supplier: c.supplier || null, equipment_name: c.equipment_name || null, material_group: c.material_group || null,
       };
       if (issue && !confirm('Lưu ' + items.length + ' vật tư và cấp số phiếu mới?')) return;
       const win = issue ? App.openPrintWindow() : null;
@@ -592,10 +628,10 @@ function linesPage() {
     },
 
     async reload() {
-      try {
-        const data = await Api.call('lines.list');
-        const rows = App.rowsToObjects(data).map(prepare);
-        placeholderText = 'Chưa có dòng nào khớp. Bấm "+ Thêm dòng" hoặc dán từ Excel.';
+      placeholderText = 'Chưa có dòng nào khớp. Bấm "+ Thêm dòng" hoặc dán từ Excel.';
+      const render = async (objects) => {
+        // sao chép để các trường phụ của bảng (_st, _s…) không lẫn vào bản lưu trong trình duyệt
+        const rows = objects.map((o) => prepare(Object.assign({}, o)));
         await table.setData(rows);
         autoFitColumns(rows);
         historyCache = null;
@@ -603,7 +639,15 @@ function linesPage() {
         table.setFilter(filterFn);
         updateInfo();
         if (rows.length) table.scrollToRow(rows[rows.length - 1]._key, 'bottom', false).catch(() => {});
+      };
+      let cachedRender = null;
+      try {
+        const res = await App.loadLines((cached) => { cachedRender = render(cached); });
+        if (cachedRender) await cachedRender;
+        if (!res.diff) await render(res.objects);
+        else await applyDiff(res.diff);
       } catch (e) {
+        if (cachedRender) { App.toast('Đang hiển thị dữ liệu đã lưu; chưa cập nhật được: ' + e.message, 'error'); return; }
         placeholderText = 'Lỗi tải dữ liệu: ' + e.message;
         table.redraw(true);
         App.toast(e.message, 'error');

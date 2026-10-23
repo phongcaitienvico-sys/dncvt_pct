@@ -7,12 +7,12 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:ital,wght@0,400;0,600;0,700;1,400&display=swap&subset=vietnamese" rel="stylesheet">
   <link rel="stylesheet" href="css/app.css?v=20261023-layout2">
-  <link rel="stylesheet" href="css/print.css?v=20261023-layout2">
+  <link rel="stylesheet" href="css/print.css?v=20261023-layout3">
   <script src="https://cdn.jsdelivr.net/npm/nunjucks@3.2.4/browser/nunjucks.min.js"></script>
   <script src="js/config.js"></script>
   <script src="js/logic.js"></script>
   <script src="js/app.js"></script>
-  <script src="js/print_mapping.js?v=20261023-layout2"></script>
+  <script src="js/print_mapping.js?v=20261023-layout3"></script>
 </head>
 <body class="print">
   <div class="print-toolbar">
@@ -220,9 +220,13 @@
               const bottom = Math.max(...flow.map(el => el.getBoundingClientRect().bottom - top));
               if (bottom <= limit || doc.pages[p].length < 2) continue;
               const rows = Array.from(sheet.querySelectorAll('.items tbody tr'));
-              const afterTable = bottom - sheet.querySelector('.items').getBoundingClientRect().bottom + top;
-              const fitting = rows.filter(row => row.getBoundingClientRect().bottom - top + afterTable <= limit).length;
-              const cut = Math.max(1, Math.min(fitting, doc.pages[p].length - 1));
+              // Khi tách, chữ ký chuyển sang trang cuối. Trang hiện tại chỉ
+              // cần dành chỗ cho số trang, không giữ khoảng trống chữ ký nữa.
+              const fitting = rows.filter(row => row.getBoundingClientRect().bottom - top <= limit).length;
+              // Giữ tối thiểu 3 dòng cùng chữ ký nếu đủ dữ liệu, tránh một
+              // trang cuối chỉ có 1 dòng khi phần chữ ký không còn vừa.
+              const tail = tpl === 'phieu_de_nghi' && p === doc.pages.length - 1 && doc.pages[p].length >= 6 ? 3 : 1;
+              const cut = Math.max(1, Math.min(fitting, doc.pages[p].length - tail));
               const overflow = doc.pages[p].splice(cut);
               if (doc.pages[p + 1] && overflow.length + doc.pages[p + 1].length <= n) {
                 doc.pages[p + 1].unshift(...overflow);
@@ -236,6 +240,21 @@
           }
           if (split) draw();
         } while (split);
+        // Giãn đều các dòng để tận dụng giấy. Trang cuối chỉ tăng tối đa 12px
+        // mỗi dòng, tránh kéo một phiếu ít vật tư thành các ô quá cao.
+        out.querySelectorAll('.sheet.pdn').forEach(sheet => {
+          const style = getComputedStyle(sheet);
+          const top = sheet.getBoundingClientRect().top;
+          const footer = sheet.querySelector('.pageno');
+          const footerSpace = footer ? footer.getBoundingClientRect().height + 12 : 0;
+          const limit = parseFloat(style.minHeight) - parseFloat(style.paddingBottom) - footerSpace - 4;
+          const flow = Array.from(sheet.children).filter(el => el !== footer);
+          const bottom = Math.max(...flow.map(el => el.getBoundingClientRect().bottom - top));
+          const rows = Array.from(sheet.querySelectorAll('.items tbody tr'));
+          const extra = Math.min(Math.max(0, limit - bottom) / rows.length, sheet.querySelector('.signs') ? 12 : Infinity);
+          const heights = rows.map(row => row.getBoundingClientRect().height);
+          rows.forEach((row, i) => { row.style.height = (heights[i] + extra) + 'px'; });
+        });
         msg.style.display = 'none';
         printButton.disabled = false;
       }

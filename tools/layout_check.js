@@ -23,6 +23,7 @@ const lines = Array.from({ length: 8000 }, (_, i) => ({
   requester: 'Người kiểm tra', request_date: '2026-10-23', supplier: 'Nhà cung cấp thử nghiệm',
   note: 'Ghi chú nhiều dòng\nDòng thứ hai cần hiển thị đầy đủ', created_by: user.username,
 }));
+let printLines = lines.slice(-6);
 const boot = { user, today: '2026-10-23', users: [user], catalogs: {
   project_items: [], units: [], material_groups: [], uoms: [], suppliers: [],
 } };
@@ -56,7 +57,7 @@ const server = http.createServer((req, res) => {
         const columns = Object.keys(lines[0]);
         data = { columns, rows: lines.map(row => columns.map(key => row[key])) };
       } else if (action === 'requests.get') data = [{
-        request: { code: 'YC2026-TEST', header_json: lines[0] }, lines: lines.slice(-6),
+        request: { code: 'YC2026-TEST', header_json: lines[0] }, lines: printLines,
       }];
       else if (action === 'lines.save') data = params.lines.map(row => ({ key: row.key, line: { ...lines[row.id - 1], ...row } }));
       else throw new Error('Unexpected API action: ' + action);
@@ -131,7 +132,42 @@ const server = http.createServer((req, res) => {
     }
     await page.reload();
     await page.waitForSelector('.sheet');
+    await page.waitForSelector('#btn-print:enabled');
     assert.equal(await page.locator('#paper').inputValue(), 'a4l', 'Remember paper selection');
+    for (const count of [18, 35]) {
+      printLines = Array.from({ length: count }, (_, i) => ({
+        ...lines[0], id: i + 1, name: 'Phụ kiện máy mài 1 619 P15 297',
+        project_name: 'Sửa chữa máy công cụ', purpose: 'Sửa chữa + dự phòng',
+        requester: 'Nam', supplier: 'KHVT', delivery_location: '',
+      }));
+      await page.reload();
+      await page.waitForSelector('#btn-print:enabled');
+      await page.selectOption('#rpp', '20');
+      await page.waitForSelector('#btn-print:enabled');
+      assert.equal(await page.locator('.items thead tr').count(), 2 * await page.locator('.sheet').count(), 'Only column labels remain; no 1–14 numbering row');
+      const layout = await page.evaluate(() => [...document.querySelectorAll('.sheet')].map(sheet => {
+        const style = getComputedStyle(sheet);
+        const rows = [...sheet.querySelectorAll('.items tbody tr')];
+        const footer = sheet.querySelector('.pageno');
+        const limit = parseFloat(style.minHeight) - parseFloat(style.paddingBottom) - footer.getBoundingClientRect().height - 12;
+        return {
+          count: rows.length,
+          minHeight: Math.min(...rows.map(row => row.getBoundingClientRect().height)),
+          final: !!sheet.querySelector('.signs'),
+          unused: limit - (sheet.querySelector('.items').getBoundingClientRect().bottom - sheet.getBoundingClientRect().top),
+        };
+      }));
+      for (const sheet of layout) {
+        if (!sheet.final) assert(sheet.unused < 10, 'Non-final pages must use the space below the table');
+        assert(sheet.minHeight > 25, 'Short rows get more room to read');
+      }
+      assert.equal(layout.reduce((sum, sheet) => sum + sheet.count, 0), count);
+      if (count === 18 && layout.length > 1) assert(layout.at(-1).count >= 3, 'Avoid an isolated final row with signatures');
+      await page.screenshot({ path: path.join(out, 'a4l-' + count + '.png'), fullPage: true });
+      const pdf = await PDFDocument.load(await page.pdf({ path: path.join(out, 'a4l-' + count + '.pdf'), preferCSSPageSize: true, printBackground: true }));
+      assert.equal(pdf.getPageCount(), layout.length, 'Expanded rows must not cause extra PDF pages');
+      console.log('ROW SPACING', count, JSON.stringify(layout));
+    }
     assert.deepEqual(errors, [], 'No browser errors');
   } finally {
     await browser.close();

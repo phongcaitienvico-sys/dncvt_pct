@@ -25,7 +25,6 @@ window.PRINT_MAPPING = {
     unit_label: 'Đơn vị đề nghị:',
     rows_per_page: 5,             // A5 ngang; trang in gợi ý số dòng theo khổ giấy
     min_rows: 0,                  // thêm dòng trống cho đủ số này ở trang cuối (0 = không thêm)
-    number_row: true,             // hàng đánh số cột 1, 2, 3… dưới tiêu đề như Form1
     // Tổng 100%; ưu tiên tên vật tư, hạng mục và mục đích, giữ đủ 14 cột Form1.
     columns: [
       { label: 'TT', field: 'stt', width: '3%', align: 'center' },

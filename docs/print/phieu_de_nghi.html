@@ -16,8 +16,7 @@
   .pdn .items { margin-top: -1px; font-size: calc(var(--fs) - 1pt); }
   .pdn .items th { font-size: calc(var(--fs) - 1.5pt); background: #fff; padding: 1mm 0.3mm; }
   .pdn .items td.center { font-size: calc(var(--fs) - 1.5pt); padding-left: .5mm; padding-right: .5mm; }
-  .pdn .items tr.num th { font-weight: 400; font-style: italic; height: 5mm; }
-  .pdn .items td { padding: var(--cp) 1.2mm; }
+  .pdn .items td { padding: var(--cp) 1.2mm; vertical-align: middle; }
   .pdn .cont { display: flex; justify-content: space-between; font-weight: 700; margin-bottom: 2mm; }
   .pdn .date-line { text-align: right; font-weight: 700; font-style: italic; margin: 2mm 6mm 1mm 0; font-size: var(--fs); }
   .pdn .signs { font-size: var(--fs); margin-top: 2mm; }
@@ -53,9 +52,6 @@
         {% for hr in head %}
         <tr>{% for h in hr %}<th colspan="{{ h.colspan }}" rowspan="{{ h.rowspan }}">{{ h.label }}</th>{% endfor %}</tr>
         {% endfor %}
-        {% if m.number_row %}
-        <tr class="num">{% for c in m.columns %}<th>{{ loop.index }}</th>{% endfor %}</tr>
-        {% endif %}
       </thead>
       <tbody>
         {% for l in page %}

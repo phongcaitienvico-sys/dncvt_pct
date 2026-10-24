@@ -124,13 +124,34 @@ function apiLinesSave_(p, ctx) {
 function apiLinesDelete_(p, ctx) {
   const ids = cleanIds_(p.ids);
   const lines = tableFind_('lines', ids);
+  const isAdmin = ctx.user.role === 'admin';
+  // Dòng đã có số phiếu: chỉ Quản trị được xóa (người dùng thường bị chặn)
   ids.forEach(function (id) {
     const l = lines[id];
-    if (!l) return;
-    if (l.request_code) fail_('Không xóa được dòng #' + id + ' vì đã thuộc phiếu ' + l.request_code + '.', 'HAS_REQUEST');
+    if (l && l.request_code && !isAdmin) {
+      fail_('Dòng #' + id + ' đã thuộc phiếu ' + l.request_code + ': chỉ Quản trị được xóa dòng đã có số phiếu.', 'HAS_REQUEST');
+    }
   });
-  ids.forEach(function (id) { if (lines[id]) audit_(ctx, 'lines', id, '(xóa dòng)', lines[id].name, ''); });
-  return { deleted: tableDelete_('lines', ids) };
+  const found = ids.filter(function (id) { return lines[id]; });
+  // Giảm số dòng đã lưu của các phiếu bị ảnh hưởng (số phiếu vẫn giữ, không cấp lại)
+  const perCode = {};
+  found.forEach(function (id) { const c = lines[id].request_code; if (c) perCode[c] = (perCode[c] || 0) + 1; });
+  const codes = Object.keys(perCode);
+  if (codes.length) {
+    tableAll_('requests').filter(function (r) { return perCode[r.code]; }).forEach(function (r) {
+      updateObjs_('requests', [{ id: r.id, patch: { line_count: Math.max(0, (r.line_count || 0) - perCode[r.code]) } }]);
+    });
+  }
+  // Xóa luôn các lần nhận hàng của dòng đã xóa để không còn dữ liệu mồ côi
+  const gone = {};
+  found.forEach(function (id) { gone[id] = true; });
+  const orphanReceipts = tableAll_('receipts').filter(function (r) { return gone[r.line_id]; });
+  if (orphanReceipts.length) tableDelete_('receipts', orphanReceipts.map(function (r) { return r.id; }));
+  found.forEach(function (id) {
+    const l = lines[id];
+    audit_(ctx, 'lines', id, '(xóa dòng)', l.name + (l.request_code ? ' — phiếu ' + l.request_code : ''), '');
+  });
+  return { deleted: tableDelete_('lines', ids), requests: codes, receipts_removed: orphanReceipts.length };
 }
 
 /** Nhân bản dòng: chép các trường nhập liệu, không chép số phiếu. */

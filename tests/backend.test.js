@@ -152,7 +152,7 @@ test('khóa tên + số lượng sau khi có phiếu; admin sửa được và c
   const fields = log.filter((a) => a.table === 'lines').map((a) => a.field + ':' + a.user);
   assert.ok(fields.includes('purpose:nam'));
   assert.ok(fields.includes('qty_requested:admin'));
-  assert.throws(() => b.call('lines.delete', { ids: [l.id] }, admin), errCode('HAS_REQUEST'));
+  assert.throws(() => b.call('lines.delete', { ids: [l.id] }, user), errCode('HAS_REQUEST')); // người dùng thường bị chặn
 });
 
 test('in lại ra đúng số và đầu phiếu cũ dù danh mục đổi', () => {
@@ -277,4 +277,26 @@ test('lines.sync theo đợt: tháng này + dòng chưa có phiếu trước, ph
   assert.deepEqual(idOf(older, older).sort((a, b) => a - b), old1.concat(oldIssued).map((l) => l.id).sort((a, b) => a - b));
   assert.equal(recent.rows.length + older.rows.length, 6);
   assert.throws(() => b.call('lines.sync', { mode: 'recent', from: 'xyz' }, user), /không hợp lệ/);
+});
+
+test('Quản trị xóa được dòng đã có số phiếu: giảm số dòng của phiếu, xóa lần nhận, ghi nhật ký; phiếu hết dòng vẫn giữ số', () => {
+  const { b, user, admin } = fresh();
+  const lines = addLines(b, user, 3);
+  const { code } = b.call('requests.issue', { line_ids: lines.map((l) => l.id) }, user);
+  b.call('receipts.add', { line_id: lines[0].id, qty: 1, received_date: '2026-10-24' }, user);
+  const res = b.call('lines.delete', { ids: [lines[0].id, lines[1].id] }, admin);
+  assert.equal(res.deleted, 2);
+  assert.deepEqual(res.requests, [code]);
+  assert.equal(res.receipts_removed, 1);
+  assert.equal(b.call('receipts.list', { line_id: lines[0].id }, user).length, 0);
+  const req = b.call('requests.get', { codes: [code] }, user)[0];
+  assert.equal(req.lines.length, 1);
+  assert.equal(req.request.line_count, 1);
+  const log = b.call('audit.list', {}, admin).filter((a) => a.field === '(xóa dòng)');
+  assert.ok(log.some((a) => a.old.includes(code)));
+  // xóa nốt: phiếu rỗng nhưng số phiếu không bị cấp lại
+  b.call('lines.delete', { ids: [lines[2].id] }, admin);
+  assert.equal(b.call('requests.get', { codes: [code] }, user)[0].lines.length, 0);
+  const [n] = addLines(b, user, 1);
+  assert.equal(b.call('requests.issue', { line_ids: [n.id] }, user).code, 'YC2026-296');
 });

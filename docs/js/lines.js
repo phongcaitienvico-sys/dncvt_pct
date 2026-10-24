@@ -772,8 +772,16 @@ function linesPage() {
       const rows = table.getSelectedRows();
       if (!rows.length) { App.toast('Hãy chọn dòng cần xóa.', 'error'); return; }
       const coded = rows.filter((r) => r.getData().request_code);
-      if (coded.length) { App.toast(coded.length + ' dòng đã có số phiếu, không xóa được. Hãy bỏ chọn các dòng này.', 'error'); return; }
-      if (!confirm('Xóa ' + rows.length + ' dòng đã chọn?')) return;
+      if (coded.length && !isAdmin()) {
+        App.toast(coded.length + ' dòng đã có số phiếu: chỉ Quản trị được xóa. Hãy bỏ chọn các dòng này hoặc nhờ Quản trị.', 'error');
+        return;
+      }
+      if (coded.length) {
+        const codes = Array.from(new Set(coded.map((r) => r.getData().request_code)));
+        const list = codes.slice(0, 6).join(', ') + (codes.length > 6 ? ' … (+' + (codes.length - 6) + ' phiếu)' : '');
+        if (!confirm('CẢNH BÁO: ' + coded.length + ' dòng đã thuộc phiếu ' + list + '.\n\nXóa sẽ làm các phiếu này mất những dòng đó khi in lại (số phiếu vẫn giữ nguyên, không cấp lại), ' +
+          'và xóa cả lần nhận hàng của các dòng đó. Việc này được ghi vào nhật ký.\n\nVẫn xóa ' + rows.length + ' dòng đã chọn?')) return;
+      } else if (!confirm('Xóa ' + rows.length + ' dòng đã chọn?')) return;
       const ids = rows.map((r) => r.getData().id).filter(Boolean);
       try {
         if (ids.length) await Api.call('lines.delete', { ids });

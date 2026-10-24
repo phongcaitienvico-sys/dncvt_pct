@@ -253,3 +253,10 @@ test('lines.sync: lần đầu đủ dòng, lần sau chỉ phần đổi + id c
   assert.deepEqual(delta.recv[lines[1].id], [2, '2026-10-23']);
   assert.throws(() => b.call('lines.sync', { since: 'không phải ngày' }, user), /không hợp lệ/);
 });
+
+test('nhân bản dòng: người yêu cầu là người đang đăng nhập', () => {
+  const { b, user } = fresh();
+  const [l] = addLines(b, user, 1, { requester: 'Người khác' });
+  const [copy] = b.call('lines.duplicate', { ids: [l.id] }, user);
+  assert.equal(copy.requester, 'Nguyễn Nam');
+});

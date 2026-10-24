@@ -19,8 +19,8 @@
     <button class="primary" type="button" id="btn-print">In / Lưu PDF</button>
     <label>Khổ giấy
       <select id="paper">
+        <option value="a4l">A4 ngang</option>
         <option value="a5l">A5 ngang</option>
-        <option value="a4l">A4 ngang (cột rộng nhất)</option>
         <option value="a4p">A4 dọc</option>
         <option value="a5p">A5 dọc</option>
       </select>
@@ -62,7 +62,7 @@
       const paperSel = document.getElementById('paper');
       const sel = document.getElementById('rpp');
       const paperKey = 'ncvt_paper_' + tpl;
-      paperSel.value = PAPERS[store.get(paperKey)] ? store.get(paperKey) : 'a5l';
+      paperSel.value = PAPERS[store.get(paperKey)] ? store.get(paperKey) : 'a4l';
       const rppKey = () => 'ncvt_rpp_' + tpl + '_' + paperSel.value;
       const fillRpp = () => {
         const def = PAPERS[paperSel.value].rows;
@@ -128,15 +128,12 @@
         });
         return [top, bottom];
       };
-      // Khối chữ ký: mặc định theo mapping, đổi theo đơn vị đề nghị (signature_rules)
-      const signaturesFor = (unit) => {
-        const sigs = (m.signatures || []).map((s) => Object.assign({}, s));
-        (m.signature_rules || []).forEach((r) => {
-          if (Logic.fold(unit).includes(Logic.fold(r.unit_contains)) && sigs[r.index]) {
-            sigs[r.index] = Object.assign(sigs[r.index], { title: r.title, name: r.name });
-          }
-        });
-        return sigs;
+      // Khối chữ ký: bộ riêng theo đơn vị đề nghị (signature_sets) hoặc bộ mặc định; name_from:'requester' → tên người yêu cầu
+      const signaturesFor = (unit, requester) => {
+        const set = (m.signature_sets || []).find((x) => Logic.fold(unit).includes(Logic.fold(x.unit_contains)));
+        return ((set && set.signatures) || m.signatures || []).map((s) => Object.assign({}, s, {
+          name: s.name_from === 'requester' ? (requester || '') : (s.name || ''),
+        }));
       };
       const withStt = (lines) => lines.map((l, i) => Object.assign({}, l, {
         _stt: i + 1, amount: l.unit_price === null || l.unit_price === undefined ? null : Logic.amount(l),
@@ -150,7 +147,7 @@
             header.project = [header.project_code, header.project_name].filter(Boolean).join(' — ');
             return {
               request: x.request, header, pages: chunk(withStt(x.lines), n, m.min_rows),
-              date_line: dateLine(header.request_date), signatures: signaturesFor(header.unit),
+              date_line: dateLine(header.request_date), signatures: signaturesFor(header.unit, header.requester),
             };
           });
         },

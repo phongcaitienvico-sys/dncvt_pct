@@ -42,15 +42,24 @@ window.PRINT_MAPPING = {
       { label: 'Người mua /NCC', field: 'supplier', width: '6%' },
       { label: 'Yêu cầu chào giá', field: '', width: '4%' },        // ghi tay
     ],
+    // Khối chữ ký mặc định = phòng Thiết bị (và mọi đơn vị khác). name_from: 'requester' → lấy tên ở cột "Người yêu cầu".
     signatures: [
-      { title: 'Người lập phiếu', name: 'Nguyễn Văn Hiếu' },
+      { title: 'Người lập phiếu', name_from: 'requester' },
       { title: 'Người xem xét', name: 'Vũ Văn Trường' },
       { title: 'T.P Thiết bị', name: 'Vũ Văn Trường' },
       { title: 'Giám đốc duyệt', name: 'Phạm Danh Mạnh' },
     ],
-    // Như công thức Form1: phiếu của P.Cải tiến thì ô thứ 3 là T.P Cải tiến (so khớp không dấu, không phân biệt hoa thường)
-    signature_rules: [
-      { unit_contains: 'cai tien', index: 2, title: 'T.P Cải tiến', name: 'Trần Việt Tiệp' },
+    // Bộ chữ ký riêng theo đơn vị đề nghị (so khớp không dấu, không phân biệt hoa thường; bộ đầu tiên khớp được dùng)
+    signature_sets: [
+      {
+        unit_contains: 'cai tien',   // P.Cải tiến
+        signatures: [
+          { title: 'Người lập phiếu', name_from: 'requester' },
+          { title: 'Người xem xét', name: 'Trần Việt Tiệp' },
+          { title: 'T.P Cải tiến', name: 'Trần Việt Tiệp' },
+          { title: 'Giám đốc duyệt', name: 'Phạm Danh Mạnh' },
+        ],
+      },
     ],
   },
 

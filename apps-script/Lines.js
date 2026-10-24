@@ -142,6 +142,7 @@ function apiLinesDuplicate_(p, ctx) {
     const copy = { request_code: null, legacy_flag: false, created_by: ctx.user.username, created_at: now, updated_at: now };
     Object.keys(LINE_FIELDS).forEach(function (f) { copy[f] = lines[id][f]; });
     copy.request_date = todayStr_();
+    copy.requester = ctx.user.full_name || ctx.user.username; // người nhân bản là người yêu cầu của dòng mới
     return copy;
   });
   const agg = {};

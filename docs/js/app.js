@@ -143,15 +143,80 @@
     },
 
     async changePassword() {
-      const oldPw = prompt('Mật khẩu hiện tại:');
-      if (!oldPw) return;
-      const newPw = prompt('Mật khẩu mới (ít nhất 8 ký tự):');
-      if (!newPw) return;
-      if (prompt('Nhập lại mật khẩu mới:') !== newPw) { App.toast('Hai lần nhập không khớp.', 'error'); return; }
+      const v = await App.askPasswords('Đổi mật khẩu', [
+        { name: 'old', label: 'Mật khẩu hiện tại', autocomplete: 'current-password' },
+        { name: 'new', label: 'Mật khẩu mới (ít nhất 8 ký tự)', autocomplete: 'new-password', min: 8 },
+        { name: 'again', label: 'Nhập lại mật khẩu mới', autocomplete: 'new-password' },
+      ], (x) => (x.new !== x.again ? 'Hai lần nhập mật khẩu mới không khớp.' : ''));
+      if (!v) return;
       try {
-        await Api.call('auth.changePassword', { old_password: oldPw, new_password: newPw });
+        await Api.call('auth.changePassword', { old_password: v.old, new_password: v.new });
         App.toast('Đã đổi mật khẩu.', 'ok');
       } catch (e) { App.toast(e.message, 'error'); }
+    },
+
+    /**
+     * Hộp thoại nhập mật khẩu có nút con mắt (hiện/ẩn). fields = [{name, label, autocomplete?, min?}];
+     * check(values) trả chuỗi lỗi (hoặc '') để kiểm tra trước khi đóng. Trả về {name: giá trị} hoặc null nếu hủy.
+     */
+    askPasswords(title, fields, check) {
+      return new Promise((resolve) => {
+        const back = document.createElement('div');
+        back.className = 'modal-back';
+        back.innerHTML = `
+          <form class="modal" style="width:min(420px,100%)" role="dialog" aria-modal="true" aria-label="${esc(title)}">
+            <div class="modal-head"><b>${esc(title)}</b></div>
+            <div class="modal-body" style="display:grid;gap:12px">
+              ${fields.map((f) => `<label style="display:grid;gap:4px;font-weight:600;font-size:14px">${esc(f.label)}
+                <input name="${esc(f.name)}" type="password" required autocomplete="${esc(f.autocomplete || 'off')}" ${f.min ? 'minlength="' + f.min + '"' : ''} style="padding:9px"></label>`).join('')}
+              <div class="error-text" data-err></div>
+            </div>
+            <div class="modal-foot"><span class="spacer"></span>
+              <button type="button" data-cancel>Hủy</button><button type="submit" class="primary">Xác nhận</button>
+            </div>
+          </form>`;
+        document.body.appendChild(back);
+        App.enhancePasswordInputs(back);
+        const form = back.querySelector('form');
+        const done = (val) => { back.remove(); resolve(val); };
+        back.querySelector('[data-cancel]').onclick = () => done(null);
+        back.addEventListener('keydown', (e) => { if (e.key === 'Escape') done(null); });
+        form.addEventListener('submit', (e) => {
+          e.preventDefault();
+          const vals = {};
+          fields.forEach((f) => { vals[f.name] = form.elements[f.name].value; });
+          const err = check ? check(vals) : '';
+          if (err) { form.querySelector('[data-err]').textContent = err; return; }
+          done(vals);
+        });
+        form.elements[fields[0].name].focus();
+      });
+    },
+
+    /** Gắn nút con mắt (hiện/ẩn) vào mọi ô mật khẩu trong `root` (mặc định cả trang). Gọi lại nhiều lần vẫn an toàn. */
+    enhancePasswordInputs(root) {
+      const EYE = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg>';
+      const EYE_OFF = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.9 10.9 0 0 1 12 19c-7 0-11-7-11-7a19.8 19.8 0 0 1 5.06-5.94M9.9 4.24A10.9 10.9 0 0 1 12 4c7 0 11 7 11 7a19.7 19.7 0 0 1-3.17 4.19M14.12 14.12a3 3 0 1 1-4.24-4.24"/><path d="M1 1l22 22"/></svg>';
+      (root || document).querySelectorAll('input[type="password"]').forEach((input) => {
+        if (input.dataset.eye) return;
+        input.dataset.eye = '1';
+        const wrap = document.createElement('span');
+        wrap.className = 'pw-wrap';
+        input.parentNode.insertBefore(wrap, input);
+        wrap.appendChild(input);
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'pw-eye';
+        btn.tabIndex = -1; // không chen vào thứ tự Tab giữa các ô nhập
+        const paint = () => {
+          const shown = input.type === 'text';
+          btn.innerHTML = shown ? EYE_OFF : EYE;
+          btn.title = btn.ariaLabel = shown ? 'Ẩn mật khẩu' : 'Hiện mật khẩu';
+        };
+        btn.addEventListener('click', () => { input.type = input.type === 'password' ? 'text' : 'password'; paint(); input.focus(); });
+        paint();
+        wrap.appendChild(btn);
+      });
     },
 
     toast(msg, type, ms) {
@@ -240,4 +305,6 @@
 
   window.Api = Api;
   window.App = App;
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => App.enhancePasswordInputs());
+  else App.enhancePasswordInputs();
 })();

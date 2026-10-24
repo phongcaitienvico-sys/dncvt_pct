@@ -10,9 +10,9 @@
   <link rel="stylesheet" href="css/app.css?v=20261023-layout2">
   <script src="https://cdn.jsdelivr.net/npm/tabulator-tables@6.3.1/dist/js/tabulator.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script src="js/config.js?v=mvlqz3tf"></script>
-  <script src="js/logic.js?v=mvlqz3tf"></script>
-  <script src="js/app.js?v=mvlqz3tf"></script>
+  <script src="js/config.js?v=mvlrqd4a"></script>
+  <script src="js/logic.js?v=mvlrqd4a"></script>
+  <script src="js/app.js?v=mvlrqd4a"></script>
   <script src="js/lines.js?v=20261023-layout2"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js"></script>
   <style>
@@ -39,6 +39,7 @@
         <span x-text="unsaved"></span> dòng chưa lưu
         <button type="button" class="link" @click="retrySave()">Lưu lại</button>
       </span>
+      <span class="small" style="color:var(--warn);font-weight:600" x-show="loadingMore">⏳ Đang tải thêm dữ liệu cũ hơn… (tìm kiếm/lọc tạm thời chỉ trong phần đã tải)</span>
       <span class="muted small" x-text="info"></span>
     </div>
 

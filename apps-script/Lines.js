@@ -200,7 +200,19 @@ function apiLinesSync_(p) {
   const idCol = s.readCol('lines', 'id');
   const ids = [];
   const changed = [];
-  if (threshold === null) {
+  const partial = p.mode === 'recent' || p.mode === 'older';
+  if (partial) {
+    // Tải lần đầu theo đợt: 'recent' = dòng từ ngày `from` trở đi + dòng chưa có phiếu/chưa có ngày; 'older' = phần còn lại
+    const from = toIsoDate_(p.from);
+    if (!from) fail_('Mốc ngày không hợp lệ');
+    const rd = s.readCol('lines', 'request_date').map(function (v) { return toIsoDate_(v) || ''; });
+    const rc = s.readCol('lines', 'request_code');
+    for (let i = 0; i < idCol.length; i++) {
+      if (idCol[i] === '' || idCol[i] === null) continue;
+      const recent = rc[i] === '' || rc[i] === null || rd[i] === '' || rd[i] >= from;
+      if ((p.mode === 'recent') === recent) { ids.push(Number(idCol[i])); changed.push(i); }
+    }
+  } else if (threshold === null) {
     for (let i = 0; i < idCol.length; i++) { if (idCol[i] !== '' && idCol[i] !== null) { ids.push(Number(idCol[i])); changed.push(i); } }
   } else {
     const upd = s.readCol('lines', 'updated_at').map(function (v) { return v instanceof Date ? Utilities.formatDate(v, CONFIG.TIMEZONE, "yyyy-MM-dd'T'HH:mm:ss") : String(v || ''); });
@@ -219,5 +231,5 @@ function apiLinesSync_(p) {
   const recv = {};
   const agg = receiptAgg_();
   Object.keys(agg).forEach(function (k) { recv[k] = [Math.round(agg[k].qty * 1000) / 1000, agg[k].last]; });
-  return { now: nowIso, full: threshold === null, columns: cols, rows: rows, ids: ids, recv: recv };
+  return { now: nowIso, full: threshold === null && !partial, partial: partial, columns: cols, rows: rows, ids: ids, recv: recv };
 }

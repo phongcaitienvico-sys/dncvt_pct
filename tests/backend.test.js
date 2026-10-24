@@ -260,3 +260,21 @@ test('nhân bản dòng: người yêu cầu là người đang đăng nhập', 
   const [copy] = b.call('lines.duplicate', { ids: [l.id] }, user);
   assert.equal(copy.requester, 'Nguyễn Nam');
 });
+
+test('lines.sync theo đợt: tháng này + dòng chưa có phiếu trước, phần cũ sau, hai đợt ghép lại đủ', () => {
+  const { b, user } = fresh();
+  const old1 = addLines(b, user, 2, { request_date: '2026-08-10' });
+  const cur = addLines(b, user, 2, { request_date: '2026-10-05' });
+  const oldIssued = addLines(b, user, 1, { request_date: '2026-09-01' });
+  b.call('requests.issue', { line_ids: oldIssued.map((l) => l.id), confirm_mixed: true }, user);
+  b.call('requests.issue', { line_ids: old1.map((l) => l.id), confirm_mixed: true }, user);
+  const noCode = addLines(b, user, 1, { request_date: '2026-07-01' }); // cũ nhưng chưa có phiếu → vẫn vào đợt 1
+  const recent = b.call('lines.sync', { mode: 'recent', from: '2026-10-01' }, user);
+  const older = b.call('lines.sync', { mode: 'older', from: '2026-10-01' }, user);
+  const idOf = (r, x) => x.rows.map((row) => row[r.columns.indexOf('id')]);
+  assert.equal(recent.partial, true);
+  assert.deepEqual(idOf(recent, recent).sort((a, b) => a - b), cur.concat(noCode).map((l) => l.id).sort((a, b) => a - b));
+  assert.deepEqual(idOf(older, older).sort((a, b) => a - b), old1.concat(oldIssued).map((l) => l.id).sort((a, b) => a - b));
+  assert.equal(recent.rows.length + older.rows.length, 6);
+  assert.throws(() => b.call('lines.sync', { mode: 'recent', from: 'xyz' }, user), /không hợp lệ/);
+});

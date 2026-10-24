@@ -448,6 +448,23 @@ function linesPage() {
     table.restoreRedraw();
   }
 
+  /** Nối phần dữ liệu cũ vào ĐẦU bảng (id nhỏ hơn) mà không làm nhảy vị trí người dùng đang xem. */
+  async function addOlder(older) {
+    const holder = document.querySelector('#grid .tabulator-tableholder');
+    const fromBottom = holder ? holder.scrollHeight - holder.scrollTop : 0;
+    const have = new Set(table.getData().map((d) => d.id).filter(Boolean));
+    const rows = older.filter((o) => !have.has(o.id)).map((o) => prepare(Object.assign({}, o)));
+    try {
+      if (rows.length) await table.addData(rows, true);
+    } catch (e) { console.warn('addOlder', e); }
+    if (holder) holder.scrollTop = holder.scrollHeight - fromBottom;
+    autoFitColumns(table.getData());
+    historyCache = null;
+    buildOptions(table.getData());
+    ui.loadingMore = false;
+    updateInfo();
+  }
+
   /** Áp phần thay đổi từ máy chủ lên bảng đang hiển thị (không đụng dòng đang có sửa chưa lưu). */
   async function applyDiff(diff) {
     const byId = new Map();
@@ -478,6 +495,7 @@ function linesPage() {
     statusFilters: Logic.STATUS_FILTERS,
     info: 'Đang tải…',
     unsaved: 0,
+    loadingMore: false, // đang tải phần dữ liệu cũ hơn ở nền
 
     // ---------- Form thêm nhiều vật tư ----------
     fm: { open: false, busy: false, error: '', pasteOpen: false, paste: '', c: {}, items: [] },
@@ -594,6 +612,7 @@ function linesPage() {
 
     async init() {
       ui = this;
+      App.prefetchRecent(); // chạy song song với tải danh mục để hiện dữ liệu tháng này sớm hơn
       const boot = await App.init();
       today = boot.today || today;
       boot.catalogs.project_items.forEach((p) => {
@@ -641,12 +660,21 @@ function linesPage() {
         if (rows.length) table.scrollToRow(rows[rows.length - 1]._key, 'bottom', false).catch(() => {});
       };
       let cachedRender = null;
+      let partialRender = null;
       try {
-        const res = await App.loadLines((cached) => { cachedRender = render(cached); });
+        const res = await App.loadLines(
+          (cached) => { cachedRender = render(cached); },
+          // Lần đầu: hiện ngay dữ liệu tháng này, phần cũ hơn nối vào sau
+          { onPartial: (p) => { ui.loadingMore = true; partialRender = render(p.objects); } },
+        );
         if (cachedRender) await cachedRender;
-        if (!res.diff) await render(res.objects);
+        if (partialRender) await partialRender;
+        if (res.older) await addOlder(res.older);
+        else if (!res.diff) await render(res.objects);
         else await applyDiff(res.diff);
       } catch (e) {
+        ui.loadingMore = false;
+        if (partialRender) { App.toast('Mới tải được dữ liệu tháng này; chưa tải được phần cũ hơn (' + e.message + '). Bấm "↻ Cập nhật" để thử lại.', 'error'); return; }
         if (cachedRender) { App.toast('Đang hiển thị dữ liệu đã lưu; chưa cập nhật được: ' + e.message, 'error'); return; }
         placeholderText = 'Lỗi tải dữ liệu: ' + e.message;
         table.redraw(true);

@@ -233,7 +233,8 @@
      * Tải danh sách dòng vật tư nhanh: có bản lưu → gọi onCached(objects) NGAY, rồi chỉ tải phần thay đổi (lines.sync).
      * Trả {objects, diff}: diff = null khi không có bản lưu (tải đầy đủ), ngược lại {upsert: [object], removed: [id]}.
      */
-    async loadLines(onCached) {
+    async loadLines(onCached, opts) {
+      opts = opts || {};
       const key = 'lines:' + (App.user ? App.user.username : '');
       const cache = await idb.get(key);
       const byId = new Map();
@@ -241,6 +242,8 @@
         cache.objs.forEach((o) => byId.set(o.id, o));
         if (onCached) onCached(Array.from(byId.values()));
       }
+      // Lần đầu (chưa có bản lưu) và nơi gọi muốn tải theo đợt: hiện ngay dữ liệu tháng này, phần cũ hơn tải tiếp ở nền
+      if (!cache && opts.onPartial) return App.loadLinesProgressive(key, opts.onPartial);
       const res = await Api.call('lines.sync', { since: cache && cache.now ? cache.now : null });
       const upsertIds = new Set();
       res.rows.forEach((r) => {
@@ -267,6 +270,42 @@
         objects,
         diff: cache ? { upsert: Array.from(upsertIds).filter((id) => byId.has(id)).map((id) => byId.get(id)), removed } : null,
       };
+    },
+
+    /** Gọi sớm đợt 1 (tháng này) ngay khi trang mở, chạy song song với tải danh mục; loadLines sẽ dùng lại. */
+    prefetchRecent() {
+      if (!Api.token()) return;
+      const from = Logic.todayIso().slice(0, 8) + '01';
+      App._early = { from, p: Api.call('lines.sync', { mode: 'recent', from }).catch(() => null) };
+    },
+
+    /**
+     * Tải lần đầu theo 2 đợt. Đợt 1 (tháng này + dòng chưa có phiếu) → onPartial({objects, loadingMore:true}) NGAY;
+     * đợt 2 (cũ hơn) xong thì gộp, lưu bản lưu và trả {objects, diff:null, older:[...]}.
+     */
+    async loadLinesProgressive(key, onPartial) {
+      const from = Logic.todayIso().slice(0, 8) + '01';
+      const toObjs = (res) => res.rows.map((r) => { const o = {}; res.columns.forEach((c, i) => { o[c] = r[i]; }); return o; });
+      const withRecv = (objs, recv) => objs.forEach((o) => {
+        const rv = recv[o.id];
+        o.qty_received = rv ? rv[0] : 0; o.last_received_date = rv ? (rv[1] || null) : null;
+      });
+      // dùng kết quả đã tải sẵn song song với danh mục (prefetchRecent) nếu có
+      const early = App._early && App._early.from === from ? await App._early.p : null;
+      App._early = null;
+      const r1 = early || await Api.call('lines.sync', { mode: 'recent', from });
+      const recent = toObjs(r1);
+      withRecv(recent, r1.recv);
+      recent.sort((a, b) => a.id - b.id);
+      onPartial({ objects: recent, loadingMore: true, from });
+      const r2 = await Api.call('lines.sync', { mode: 'older', from });
+      const older = toObjs(r2);
+      withRecv(older, r2.recv);
+      older.sort((a, b) => a.id - b.id);
+      const all = older.concat(recent).sort((a, b) => a.id - b.id);
+      // mốc đồng bộ = lúc bắt đầu đợt 1: lần sau chỉ lấy các thay đổi từ đó (có lùi 2 phút) nên không sót dòng ghi giữa 2 đợt
+      idb.set(key, { now: r1.now, objs: all });
+      return { objects: all, diff: null, older };
     },
 
     /** Chuyển kết quả lines.list (cột + mảng) thành mảng object. */

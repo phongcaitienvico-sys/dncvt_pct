@@ -18,6 +18,17 @@ window.PRINT_MAPPING = {
     place: 'Ninh Bình',            // "Ninh Bình, ngày … tháng … năm …"
   },
 
+  // Tên gọi tắt trong dữ liệu cũ (cột "Người yêu cầu") → họ tên đầy đủ khi in chữ ký. So khớp không dấu, không phân biệt hoa thường.
+  // Dòng mới nhập sau này lấy theo "Họ tên" của tài khoản nên đã đầy đủ, không cần thêm vào đây.
+  name_aliases: {
+    'Hà': 'Hoàng Ngọc Hà',
+    'Hiếu': 'Nguyễn Văn Hiếu',
+    'Nam': 'Phan Thành Nam',
+    'Tiệp': 'Trần Việt Tiệp',
+    'Duy': 'Tống Đức Duy',
+    'Huynh': 'Vũ Thế Huynh',
+  },
+
   // ---------- Phiếu đề nghị cấp vật tư — theo tab Form1 (BM.KHVT.04.01) ----------
   phieu_de_nghi: {
     title_lines: ['PHIẾU', 'ĐỀ NGHỊ CẤP VẬT TƯ'],

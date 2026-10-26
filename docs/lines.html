@@ -13,7 +13,7 @@
   <script src="js/config.js?v=mvon3e4r"></script>
   <script src="js/logic.js?v=mvon3e4r"></script>
   <script src="js/app.js?v=mvon3e4r"></script>
-  <script src="js/lines.js?v=20261023-layout2"></script>
+  <script src="js/lines.js?v=20261026-appendcode"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js"></script>
   <style>
     #grid { background: #fff; }
@@ -28,6 +28,8 @@
     <div class="toolbar">
       <button class="primary" type="button" @click="issue()" title="Cấp số phiếu mới cho các dòng đã chọn, hoặc in lại nếu các dòng đã có số phiếu">Xuất phiếu PDF</button>
       <button type="button" @click="reprintPrompt()">In lại theo số phiếu…</button>
+      <button type="button" @click="appendPrompt()" title="Quên vật tư sau khi xuất phiếu: tick các dòng mới (chưa có phiếu) rồi thêm vào phiếu đã xuất, giữ nguyên số phiếu">Thêm vào phiếu đã xuất…</button>
+      <button type="button" x-show="isAdmin" x-cloak @click="detach()" title="Quản trị: đưa dòng đã chọn ra khỏi phiếu (dòng trở lại chưa có phiếu, không xóa dữ liệu)">Gỡ khỏi phiếu</button>
       <button type="button" class="primary" style="background:#157f3b;border-color:#157f3b" @click="openForm()" title="Nhập nhiều vật tư một lần, có thể lưu kèm xuất phiếu">+ Thêm vật tư (form)</button>
       <button type="button" @click="addRow()">+ Thêm dòng</button>
       <button type="button" @click="duplicate()">Nhân bản dòng</button>
@@ -81,6 +83,14 @@
         </div>
         <div class="modal-body">
           <div class="fgrid">
+            <label class="wide">Thêm vào phiếu đã xuất <span class="muted" style="font-weight:400">(để trống = phiếu mới)</span>
+              <input list="dl-codes" x-model="fm.c.append_code" @change="formAppendCode()" placeholder="Quên vật tư? Chọn số phiếu cũ, vd. YC2026-295">
+            </label>
+            <div class="wide small" style="grid-column:span 2;align-self:end">
+              <button type="button" class="link" x-show="fm.lastCode && !fm.c.append_code" @click="fm.c.append_code = fm.lastCode; formAppendCode()">
+                ← Thêm vào phiếu vừa xuất <b x-text="fm.lastCode"></b></button>
+              <span x-show="fm.c.append_code" style="color:var(--warn);font-weight:600">Các vật tư dưới đây sẽ được thêm vào phiếu <span x-text="fm.c.append_code"></span>, không cấp số mới.</span>
+            </div>
             <label>Đơn vị đề xuất <input list="dl-unit" x-model="fm.c.unit"></label>
             <label class="wide">Hạng mục (mã — tên) <input list="dl-project" x-model="fm.c.project" @change="formProject()" placeholder="Gõ để tìm, vd. MS332"></label>
             <label>Địa điểm giao <input list="dl-loc" x-model="fm.c.delivery_location"></label>
@@ -140,8 +150,10 @@
           <span class="muted small" x-text="fm.items.filter(i => (i.name||'').trim()).length + ' vật tư'"></span>
           <span class="spacer"></span>
           <button type="button" @click="closeForm()" :disabled="fm.busy">Hủy</button>
-          <button type="button" @click="formSubmit(false)" :disabled="fm.busy">Lưu</button>
-          <button type="button" class="primary" @click="formSubmit(true)" :disabled="fm.busy" title="Lưu rồi cấp số phiếu và mở phiếu để in/lưu PDF">Lưu &amp; xuất phiếu PDF</button>
+          <button type="button" x-show="!fm.c.append_code" @click="formSubmit(false)" :disabled="fm.busy">Lưu</button>
+          <button type="button" class="primary" x-show="!fm.c.append_code" @click="formSubmit(true)" :disabled="fm.busy" title="Lưu rồi cấp số phiếu và mở phiếu để in/lưu PDF">Lưu &amp; xuất phiếu PDF</button>
+          <button type="button" class="primary" x-show="fm.c.append_code" @click="formSubmit(true)" :disabled="fm.busy" title="Lưu rồi thêm vào phiếu đã xuất (giữ số) và mở phiếu để in lại"
+            x-text="'Lưu & thêm vào phiếu ' + fm.c.append_code"></button>
         </div>
       </div>
     </div>
@@ -154,12 +166,14 @@
     <datalist id="dl-sup"><template x-for="u in dl.sup" :key="u"><option :value="u"></option></template></datalist>
     <datalist id="dl-equip"><template x-for="u in dl.equip" :key="u"><option :value="u"></option></template></datalist>
     <datalist id="dl-group"><template x-for="g in dl.groups" :key="g.code"><option :value="g.code" :label="g.desc"></option></template></datalist>
+    <datalist id="dl-codes"><template x-for="u in dl.codes" :key="u"><option :value="u"></option></template></datalist>
     <datalist id="dl-name"><template x-for="u in dl.name" :key="u"><option :value="u"></option></template></datalist>
     </div>
     <div id="grid"></div>
     <div class="muted small" style="margin-top:6px">
       Nhấp vào ô để sửa · Enter: lưu và xuống dòng dưới (ở dòng cuối sẽ tự thêm dòng mới) ·
-      Dán từ Excel: nhấp chọn ô bắt đầu rồi Ctrl+V · Dòng đã có số phiếu: chỉ Quản trị sửa được tên vật tư và số lượng.
+      Dán từ Excel: nhấp chọn ô bắt đầu rồi Ctrl+V · Dòng đã có số phiếu: chỉ Quản trị sửa được tên vật tư và số lượng ·
+      Quên vật tư sau khi xuất phiếu: tick dòng mới + 1 dòng của phiếu cũ rồi bấm "Xuất phiếu PDF" (hoặc dùng "Thêm vào phiếu đã xuất…") để giữ nguyên số phiếu.
     </div>
   </main>
 </body>

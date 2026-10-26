@@ -172,6 +172,7 @@ function apiLinesDuplicate_(p, ctx) {
 
 /**
  * Form "Thêm vật tư": tạo NHIỀU dòng một lần trong cùng một khóa, tùy chọn cấp số phiếu ngay (issue=true).
+ * append_code = số phiếu đã có → các dòng mới được thêm vào phiếu đó (giữ số cũ) thay vì cấp số mới.
  * p.common = các trường chung áp cho mọi dòng; p.items = [{name, uom, qty_requested, qty_on_hand, note, ...}] (trường riêng đè trường chung).
  * Kiểm tra TRƯỚC khi ghi nên lỗi không để lại dòng dở dang hoặc tiêu hao số phiếu.
  */
@@ -189,12 +190,17 @@ function apiLinesCreate_(p, ctx) {
     if (!clean.request_date) clean.request_date = todayStr_();
     return clean;
   });
+  const appendTo = p.append_code ? String(p.append_code).trim() : '';
+  if (appendTo) appendCheck_(appendTo, lines, p.confirm_mixed); // lỗi (sai số phiếu, khác hạng mục…) thì chưa ghi dòng nào
   const now = nowStr_();
   const rows = tableInsert_('lines', lines.map(function (l) {
     return Object.assign({ request_code: null, legacy_flag: false }, l, { created_by: ctx.user.username, created_at: now, updated_at: now });
   }));
   let code = null;
-  if (p.issue) {
+  if (appendTo) {
+    code = apiRequestsAppend_({ code: appendTo, line_ids: rows.map(function (r) { return r.id; }), confirm_mixed: true }, ctx).code;
+    rows.forEach(function (r) { r.request_code = code; });
+  } else if (p.issue) {
     code = apiRequestsIssue_({ line_ids: rows.map(function (r) { return r.id; }), confirm_mixed: true, header: p.header }, ctx).code;
     rows.forEach(function (r) { r.request_code = code; });
   }

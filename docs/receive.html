@@ -84,7 +84,7 @@
                 <span x-text="Logic.fmtDate(r.received_date) + ': ' + Logic.fmtNum(r.qty) + (r.note ? ' — ' + r.note : '')"></span>
                 <span>
                   <span class="muted" x-text="r.received_by"></span>
-                  <button type="button" class="link danger" x-show="isAdmin" @click="removeReceipt(l, r)">Xóa</button>
+                  <button type="button" class="link danger" x-show="canRemove(r)" @click="removeReceipt(l, r)" title="Nhập nhầm thì xóa rồi nhận lại">Xóa</button>
                 </span>
               </div>
             </template>
@@ -100,12 +100,13 @@
     function receivePage() {
       return {
         lines: [], q: '', status: 'open', onlyIssued: true, limit: 60, loading: true, busy: null,
-        today: Logic.todayIso(), isAdmin: false,
+        today: Logic.todayIso(), isAdmin: false, me: '',
 
         async init() {
           const boot = await App.init();
           this.today = boot.today || this.today;
           this.isAdmin = App.user.role === 'admin';
+          this.me = App.user.full_name || App.user.username;
           try {
             const res = await App.loadLines((cached) => { this.lines = cached.map((l) => this.prep(Object.assign({}, l))); this.loading = false; });
             this.lines = res.objects.map((l) => this.prep(Object.assign({}, l)));
@@ -143,6 +144,10 @@
         async toggleHistory(l) {
           if (l._hist) { l._hist = null; return; }
           try { l._hist = await Api.call('receipts.list', { line_id: l.id }); } catch (e) { App.toast(e.message, 'error'); }
+        },
+        /** Quản trị xóa mọi lần nhận; người thường xóa lần nhận của chính mình trong hôm nay (máy chủ kiểm tra lại). */
+        canRemove(r) {
+          return this.isAdmin || (r.received_by === this.me && String(r.created_at || '').slice(0, 10) === Logic.todayIso());
         },
         async removeReceipt(l, r) {
           if (!confirm('Xóa lần nhận ' + Logic.fmtNum(r.qty) + ' ngày ' + Logic.fmtDate(r.received_date) + '?')) return;

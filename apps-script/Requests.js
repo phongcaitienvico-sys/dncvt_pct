@@ -33,12 +33,9 @@ function buildHeader_(lines, extra) {
   };
 }
 
-/**
- * Cấp số phiếu mới cho các dòng chưa có phiếu. Chạy trong withLock_ nên 2 người bấm cùng lúc
- * sẽ được xử lý lần lượt → 2 số liên tiếp, không trùng, không nhảy. Mọi kiểm tra chạy TRƯỚC khi tăng số.
- */
-function apiRequestsIssue_(p, ctx) {
-  const ids = cleanIds_(p.line_ids);
+/** Đọc các dòng sắp đưa vào phiếu và kiểm tra: còn tồn tại, chưa có phiếu, đủ tên + số lượng. */
+function issuableLines_(lineIds) {
+  const ids = cleanIds_(lineIds);
   if (!ids.length) fail_('Chưa chọn dòng nào.');
   if (ids.length > CONFIG.MAX_LINES_PER_REQUEST) fail_('Một phiếu tối đa ' + CONFIG.MAX_LINES_PER_REQUEST + ' dòng.');
   const found = tableFind_('lines', ids);
@@ -56,16 +53,29 @@ function apiRequestsIssue_(p, ctx) {
     fail_('Dòng #' + invalid.map(function (l) { return l.id; }).join(', #') + ' thiếu tên vật tư hoặc số lượng yêu cầu.', 'INVALID',
       { line_ids: invalid.map(function (l) { return l.id; }) });
   }
+  return lines;
+}
 
+/** Các dòng khác hạng mục / nơi giao mà chưa xác nhận → lỗi MIXED để client hỏi lại. */
+function checkMixed_(lines, confirmed) {
   const projects = distinct_(lines.map(function (l) { return l.project_code || l.project_name; }));
   const locations = distinct_(lines.map(function (l) { return l.delivery_location; }));
-  if (!p.confirm_mixed && (projects.length > 1 || locations.length > 1)) {
+  if (!confirmed && (projects.length > 1 || locations.length > 1)) {
     const parts = [];
     if (projects.length > 1) parts.push(projects.length + ' hạng mục');
     if (locations.length > 1) parts.push(locations.length + ' nơi giao');
     fail_(lines.length + ' dòng thuộc ' + parts.join(' và ') + ', vẫn gộp vào 1 phiếu?', 'MIXED',
       { lines: lines.length, projects: projects.length, locations: locations.length });
   }
+}
+
+/**
+ * Cấp số phiếu mới cho các dòng chưa có phiếu. Chạy trong withLock_ nên 2 người bấm cùng lúc
+ * sẽ được xử lý lần lượt → 2 số liên tiếp, không trùng, không nhảy. Mọi kiểm tra chạy TRƯỚC khi tăng số.
+ */
+function apiRequestsIssue_(p, ctx) {
+  const lines = issuableLines_(p.line_ids);
+  checkMixed_(lines, p.confirm_mixed);
 
   const year = Number(Utilities.formatDate(now_(), CONFIG.TIMEZONE, 'yyyy'));
   const existingCodes = {};
@@ -83,6 +93,67 @@ function apiRequestsIssue_(p, ctx) {
   updateObjs_('lines', lines.map(function (l) { return { id: l.id, patch: { request_code: code, updated_at: now } }; }));
   audit_(ctx, 'requests', code, '(xuất phiếu)', '', lines.map(function (l) { return l.id; }).join(','));
   return { code: code, line_ids: lines.map(function (l) { return l.id; }) };
+}
+
+function findRequest_(code) {
+  const c = String(code || '').trim().toUpperCase();
+  if (!c) fail_('Chưa nhập số phiếu.');
+  const req = tableAll_('requests').find(function (r) { return String(r.code).toUpperCase() === c; });
+  if (!req) fail_('Không tìm thấy phiếu ' + c + '.', 'NOT_FOUND');
+  return req;
+}
+
+/** Kiểm tra trước khi thêm `lines` vào phiếu `code` (chạy trước mọi lệnh ghi). Trả {req, current: các dòng đang có}. */
+function appendCheck_(code, lines, confirmed) {
+  const req = findRequest_(code);
+  if (req.legacy_flag) fail_('Phiếu ' + req.code + ' là phiếu lịch sử (nhập từ Sheet cũ), không thêm dòng được.');
+  const current = tableAll_('lines').filter(function (l) { return l.request_code === req.code; });
+  if (current.length + lines.length > CONFIG.MAX_LINES_PER_REQUEST) {
+    fail_('Phiếu ' + req.code + ' đã có ' + current.length + ' dòng, thêm ' + lines.length + ' dòng sẽ vượt quá ' + CONFIG.MAX_LINES_PER_REQUEST + ' dòng/phiếu.');
+  }
+  checkMixed_(current.concat(lines), confirmed);
+  return { req: req, current: current };
+}
+
+/**
+ * Thêm dòng chưa có phiếu vào một phiếu ĐÃ CÓ (quên vật tư sau khi xuất) — giữ nguyên số phiếu, không tốn số mới.
+ * Đầu phiếu: giữ ngày đề nghị + ghi chú cũ, chỉ bổ sung đơn vị / hạng mục / nơi giao / người yêu cầu mới (nếu có).
+ */
+function apiRequestsAppend_(p, ctx) {
+  const lines = issuableLines_(p.line_ids);
+  const pre = appendCheck_(p.code, lines, p.confirm_mixed);
+  const req = pre.req;
+  const current = pre.current;
+  const now = nowStr_();
+  const old = req.header_json || {};
+  const added = buildHeader_(lines);
+  const header = Object.assign({}, old);
+  ['unit', 'project_code', 'project_name', 'delivery_location', 'requester'].forEach(function (f) {
+    header[f] = distinct_(String(old[f] || '').split('; ').concat(String(added[f] || '').split('; '))).filter(String).join('; ');
+  });
+  header.need_date = [old.need_date, added.need_date].filter(Boolean).sort()[0] || null;
+  updateObjs_('requests', [{ id: req.id, patch: { header_json: header, line_count: current.length + lines.length } }]);
+  updateObjs_('lines', lines.map(function (l) { return { id: l.id, patch: { request_code: req.code, updated_at: now } }; }));
+  audit_(ctx, 'requests', req.code, '(thêm dòng vào phiếu)', '', lines.map(function (l) { return l.id; }).join(','));
+  return { code: req.code, line_ids: lines.map(function (l) { return l.id; }) };
+}
+
+/** Quản trị: gỡ dòng khỏi phiếu (dòng trở lại "chưa có phiếu", giữ nguyên dữ liệu và lần nhận). Số phiếu không cấp lại. */
+function apiRequestsDetach_(p, ctx) {
+  const ids = cleanIds_(p.line_ids);
+  if (!ids.length) fail_('Chưa chọn dòng nào.');
+  const found = tableFind_('lines', ids);
+  const lines = ids.map(function (id) { return found[id]; }).filter(function (l) { return l && l.request_code; });
+  if (!lines.length) fail_('Các dòng đã chọn chưa thuộc phiếu nào.');
+  const perCode = {};
+  lines.forEach(function (l) { perCode[l.request_code] = (perCode[l.request_code] || 0) + 1; });
+  tableAll_('requests').filter(function (r) { return perCode[r.code]; }).forEach(function (r) {
+    updateObjs_('requests', [{ id: r.id, patch: { line_count: Math.max(0, (r.line_count || 0) - perCode[r.code]) } }]);
+  });
+  const now = nowStr_();
+  updateObjs_('lines', lines.map(function (l) { return { id: l.id, patch: { request_code: null, updated_at: now } }; }));
+  lines.forEach(function (l) { audit_(ctx, 'lines', l.id, 'request_code', l.request_code, '(gỡ khỏi phiếu)'); });
+  return { line_ids: lines.map(function (l) { return l.id; }), requests: Object.keys(perCode) };
 }
 
 /** Lấy 1 hoặc nhiều phiếu kèm dòng để in. */

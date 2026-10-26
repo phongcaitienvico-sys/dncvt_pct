@@ -20,10 +20,20 @@ function apiReceiptsList_(p) {
     .sort(function (a, b) { return String(a.received_date).localeCompare(String(b.received_date)) || a.id - b.id; });
 }
 
+/** Nhập nhầm thì tự sửa được: người thường xóa lần nhận của chính mình, ghi trong hôm nay. */
+function canDeleteReceipt_(rec, user) {
+  if (user.role === 'admin') return true;
+  const me = user.full_name || user.username;
+  return rec.received_by === me && String(rec.created_at || '').slice(0, 10) === todayStr_();
+}
+
 function apiReceiptsDelete_(p, ctx) {
   const id = cleanIds_([p.id])[0];
   const rec = tableFind_('receipts', [id])[id];
   if (!rec) fail_('Không tìm thấy lần nhận #' + id, 'NOT_FOUND');
+  if (!canDeleteReceipt_(rec, ctx.user)) {
+    fail_('Chỉ Quản trị, hoặc chính người ghi nhận trong ngày, được xóa lần nhận này.', 'FORBIDDEN');
+  }
   tableDelete_('receipts', [id]);
   audit_(ctx, 'receipts', id, '(xóa lần nhận)', JSON.stringify(rec), '');
   const line = tableFind_('lines', [rec.line_id])[rec.line_id];

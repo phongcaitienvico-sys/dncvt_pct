@@ -29,6 +29,7 @@ function linesPage() {
   let saveTimer = null;
   let saving = false;
   let lastCell = null; // ô được nhấp gần nhất (để dán)
+  let lastCode = ''; // số phiếu vừa cấp / vừa thêm dòng trong phiên này (gợi ý khi thêm vật tư bị quên)
   let historyCache = null;
   let placeholderText = 'Đang tải dữ liệu…';
   let formKey = 0;
@@ -81,13 +82,27 @@ function linesPage() {
     return historyCache;
   }
 
-  const foldFilter = (term, label) => Logic.fold(label).includes(Logic.fold(term));
-  const listEditor = (values, freetext, extra) => Object.assign({
-    values, autocomplete: true, allowEmpty: true, listOnEmpty: true, freetext: !!freetext, filterFunc: foldFilter, clearable: true,
-  }, extra || {});
+  /**
+   * Tabulator lọc danh sách theo chữ đang có trong ô ngay lúc mở trình sửa → ô đã có giá trị chỉ thấy đúng 1 lựa chọn,
+   * hoặc "No Results Found" nếu giá trị cũ không có trong danh mục. Khi người dùng chưa gõ gì (chữ trong ô vẫn là
+   * giá trị cũ / nhãn của nó) thì hiện đủ danh sách; gõ chữ khác mới lọc.
+   */
+  let editStart = null; // giá trị ô (đã bỏ dấu) lúc bắt đầu sửa
+  const makeFilter = (labelOf) => (term, label) => {
+    const t = Logic.fold(term);
+    if (editStart !== null && t && (t === editStart || (labelOf && t === labelOf[editStart]))) return true;
+    return Logic.fold(label).includes(t);
+  };
+  const listEditor = (values, freetext, extra) => {
+    const labelOf = {};
+    values.forEach((v) => { if (v && typeof v === 'object') labelOf[Logic.fold(v.value)] = Logic.fold(v.label); });
+    return Object.assign({
+      values, autocomplete: true, allowEmpty: true, listOnEmpty: true, freetext: !!freetext, filterFunc: makeFilter(labelOf), clearable: true,
+    }, extra || {});
+  };
   const historyEditor = (field, listOnEmpty) => ({
     valuesLookup: () => history().lists[field], autocomplete: true, allowEmpty: true, freetext: true,
-    listOnEmpty: listOnEmpty !== false, filterFunc: foldFilter, filterDelay: 150,
+    listOnEmpty: listOnEmpty !== false, filterFunc: makeFilter(null), filterDelay: 150,
   });
 
   function canEdit(cell) {
@@ -490,6 +505,81 @@ function linesPage() {
     }
   }
 
+  // ---------- Phiếu: cấp số / thêm vào phiếu cũ / gỡ khỏi phiếu ----------
+
+  /** Gọi API; nếu máy chủ báo khác hạng mục / nơi giao (MIXED) thì hỏi rồi gọi lại. Người dùng không đồng ý → null. */
+  async function callMixed(action, params) {
+    try {
+      return await Api.call(action, params);
+    } catch (e) {
+      if (e.code !== 'MIXED') throw e;
+      if (!confirm(e.message)) return null;
+      return Api.call(action, Object.assign({}, params, { confirm_mixed: true }));
+    }
+  }
+
+  function checkIssuable(data) {
+    const bad = data.filter((d) => !d.name || !(d.qty_requested > 0));
+    if (bad.length) App.toast(bad.length + ' dòng thiếu tên vật tư hoặc số lượng yêu cầu.', 'error');
+    return !bad.length;
+  }
+
+  /** Lưu hết thay đổi đang chờ rồi trả id của các dòng (dòng mới cần được tạo xong trên máy chủ). */
+  async function savedIds(rows) {
+    await flushAll();
+    const ids = rows.map((r) => r.getData().id);
+    if (ids.some((id) => !id)) throw new Error('Có dòng chưa lưu xong, thử lại sau giây lát.');
+    return ids;
+  }
+
+  function markIssued(rows, code) {
+    rows.forEach((r) => {
+      const d = Object.assign({}, r.getData(), { request_code: code });
+      safeUpdate(r, Object.assign({ request_code: code }, derive(d)));
+      r.deselect();
+      r.reformat();
+    });
+    if (code) lastCode = code;
+    updateInfo();
+  }
+
+  /** Thêm các dòng (chưa có phiếu) vào phiếu `code` đã xuất, rồi mở phiếu để in lại với đủ dòng. */
+  async function appendRows(rows, code) {
+    if (!checkIssuable(rows.map((r) => r.getData()))) return;
+    const win = App.openPrintWindow();
+    if (win) win.document.write('<p style="font:16px sans-serif;padding:24px">Đang thêm vào phiếu ' + App.esc(code) + '…</p>');
+    try {
+      const ids = await savedIds(rows);
+      const res = await callMixed('requests.append', { code, line_ids: ids });
+      if (!res) { if (win) win.close(); return; }
+      markIssued(rows, res.code);
+      table.deselectRow(); // bỏ tick cả dòng của phiếu cũ đã chọn kèm
+      App.toast('Đã thêm ' + ids.length + ' dòng vào phiếu ' + res.code + '.', 'ok', 6000);
+      if (win) win.location.href = App.printUrl([res.code]);
+      else window.open(App.printUrl([res.code]), '_blank');
+    } catch (e) {
+      if (win) win.close();
+      App.toast(e.message, 'error');
+    }
+  }
+
+  /** Ô "Hạng mục" của form → {code, name}: khớp danh mục, hoặc tách dạng "mã — tên", còn lại coi là tên. */
+  function formProjectOf(text) {
+    const t = (text || '').trim();
+    if (!t) return { code: null, name: null };
+    if (formProjects.has(t)) return formProjects.get(t);
+    const i = t.indexOf(' — ');
+    if (i > 0) return { code: t.slice(0, i).trim() || null, name: t.slice(i + 3).trim() || null };
+    return { code: null, name: t };
+  }
+
+  /** Số phiếu đang có trên bảng (mới nhất trước) để gợi ý ô "Thêm vào phiếu có sẵn" của form. */
+  function knownCodes() {
+    const set = new Set();
+    table.getData().forEach((d) => { if (d.request_code && !/^LS-/i.test(d.request_code)) set.add(d.request_code); });
+    return Array.from(set).sort((a, b) => b.localeCompare(a, 'en', { numeric: true })).slice(0, 300);
+  }
+
   // ---------- Trạng thái Alpine ----------
 
   const state = {
@@ -501,8 +591,9 @@ function linesPage() {
     loadingMore: false, // đang tải phần dữ liệu cũ hơn ở nền
 
     // ---------- Form thêm nhiều vật tư ----------
-    fm: { open: false, busy: false, error: '', pasteOpen: false, paste: '', c: {}, items: [] },
-    dl: { units: [], projects: [], uoms: [], loc: [], req: [], purpose: [], sup: [], name: [], equip: [], groups: [] },
+    fm: { open: false, busy: false, error: '', pasteOpen: false, paste: '', c: {}, items: [], lastCode: '' },
+    dl: { units: [], projects: [], uoms: [], loc: [], req: [], purpose: [], sup: [], name: [], equip: [], groups: [], codes: [] },
+    isAdmin: false,
 
     openForm() {
       const cat = App.boot.catalogs;
@@ -518,11 +609,14 @@ function linesPage() {
         units: cat.units.map((u) => u.name), projects: Array.from(projects.keys()), uoms: cat.uoms.map((u) => u.name),
         loc: h.delivery_location, req: h.requester, purpose: h.purpose, sup: h.supplier, name: h.name,
         equip: h.equipment_name, groups: cat.material_groups.map((g) => ({ code: g.name, desc: g.description || '' })),
+        codes: knownCodes(),
       };
       if (!this.fm.items.length) { this.fm.items = []; this.formAddRow(3); }
       this.fm.c = Object.assign({
         unit: '', project: '', delivery_location: '', requester: App.user.full_name, request_date: today, need_date: '', purpose: '', supplier: '', equipment_name: '', material_group: '',
+        append_code: '',
       }, this.fm.c.unit !== undefined ? this.fm.c : {});
+      this.fm.lastCode = lastCode;
       this.fm.error = '';
       this.fm.open = true;
       setTimeout(() => { const el = document.getElementById('fm-name-0'); if (el) el.focus(); }, 100);
@@ -544,6 +638,18 @@ function linesPage() {
       if (hit && !it.uom && hit.uom) it.uom = hit.uom;
     },
     formProject() { /* nhận diện lúc lưu */ },
+    /** Chọn phiếu cũ để thêm vào: ô thông tin chung nào đang trống thì lấy theo dòng của phiếu đó. */
+    formAppendCode() {
+      const code = (this.fm.c.append_code || '').trim().toUpperCase();
+      this.fm.c.append_code = code;
+      const first = code && table.getData().find((d) => d.request_code === code);
+      if (!first) return;
+      const c = this.fm.c;
+      const fill = (k, v) => { if (!(c[k] || '').trim() && v) c[k] = v; };
+      ['unit', 'delivery_location', 'requester', 'purpose', 'supplier', 'equipment_name', 'material_group'].forEach((k) => fill(k, first[k]));
+      fill('need_date', first.need_date);
+      fill('project', [first.project_code, first.project_name].filter(Boolean).join(' — '));
+    },
     formPaste() {
       const rows = parseTsv(this.fm.paste.replace(/\s+$/, '')).filter((r) => (r[0] || '').trim());
       if (!rows.length) { this.fm.error = 'Chưa có dòng nào để thêm.'; return; }
@@ -577,31 +683,38 @@ function linesPage() {
           need_date: it.need_date || null, purpose: t(it.purpose), equipment_name: t(it.equipment_name), supplier: t(it.supplier),
         };
         if (t(it.project)) {
-          const pj = formProjects.get(t(it.project)) || { code: null, name: t(it.project) };
+          const pj = formProjectOf(it.project);
           row.project_code = pj.code; row.project_name = pj.name;
         }
         items.push(row);
       }
       if (!items.length) { this.fm.error = 'Chưa có vật tư nào.'; return; }
-      const proj = formProjects.get((c.project || '').trim()) || { code: null, name: (c.project || '').trim() || null };
+      const proj = formProjectOf(c.project);
       const common = {
         unit: c.unit || null, project_code: proj.code, project_name: proj.name, delivery_location: c.delivery_location || null,
         requester: c.requester || null, request_date: c.request_date || null, need_date: c.need_date || null,
         purpose: c.purpose || null, supplier: c.supplier || null, equipment_name: c.equipment_name || null, material_group: Logic.normalizeMaterialGroup(c.material_group, App.boot.catalogs.material_groups),
       };
+      // có chọn phiếu cũ → thêm vào phiếu đó (giữ số); không thì lưu thường / cấp số mới
+      const appendCode = (c.append_code || '').trim().toUpperCase();
+      if (appendCode) issue = false;
+      if (appendCode && !confirm('Lưu ' + items.length + ' vật tư và thêm vào phiếu ' + appendCode + ' (giữ nguyên số phiếu)?')) return;
       if (issue && !confirm('Lưu ' + items.length + ' vật tư và cấp số phiếu mới?')) return;
-      const win = issue ? App.openPrintWindow() : null;
-      if (win) win.document.write('<p style="font:16px sans-serif;padding:24px">Đang cấp số phiếu…</p>');
+      const win = issue || appendCode ? App.openPrintWindow() : null;
+      if (win) win.document.write('<p style="font:16px sans-serif;padding:24px">' + (appendCode ? 'Đang thêm vào phiếu ' + App.esc(appendCode) : 'Đang cấp số phiếu') + '…</p>');
       this.fm.busy = true;
       try {
-        const res = await Api.call('lines.create', { common, items, issue: !!issue });
+        const res = await callMixed('lines.create', { common, items, issue: !!issue, append_code: appendCode || null });
+        if (!res) { if (win) win.close(); this.fm.busy = false; return; }
         await table.addData(res.lines.map((l) => prepare(l)), false);
         historyCache = null;
         updateInfo();
         this.fm.items = []; this.formAddRow(3);
+        this.fm.c.append_code = '';
+        if (res.code) { lastCode = res.code; this.fm.lastCode = res.code; }
         this.fm.open = false;
         table.scrollToRow('i' + res.lines[res.lines.length - 1].id, 'bottom', false).catch(() => {});
-        App.toast('Đã thêm ' + res.lines.length + ' vật tư' + (res.code ? ' — phiếu ' + res.code : '') + '.', 'ok', 6000);
+        App.toast('Đã thêm ' + res.lines.length + ' vật tư' + (res.code ? (appendCode ? ' vào phiếu ' : ' — phiếu ') + res.code : '') + '.', 'ok', 6000);
         if (res.code) {
           if (win) win.location.href = App.printUrl([res.code]);
           else window.open(App.printUrl([res.code]), '_blank');
@@ -618,6 +731,7 @@ function linesPage() {
       App.prefetchRecent(); // chạy song song với tải danh mục để hiện dữ liệu tháng này sớm hơn
       const boot = await App.init();
       today = boot.today || today;
+      this.isAdmin = isAdmin();
       boot.catalogs.project_items.forEach((p) => {
         const code = p.item_code || p.project_code;
         const name = p.item_name || p.project_name;
@@ -637,6 +751,12 @@ function linesPage() {
         columns: columns(boot.catalogs),
       });
       table.on('cellEdited', onCellEdited);
+      table.on('cellEditing', (cell) => {
+        const v = cell.getValue();
+        editStart = v === null || v === undefined || v === '' ? null : Logic.fold(v);
+        // bôi đen chữ cũ: gõ là thay luôn, không phải xóa tay từng ký tự
+        setTimeout(() => { const inp = cell.getElement().querySelector('input'); if (inp && inp.select) inp.select(); }, 30);
+      });
       table.on('cellClick', (e, cell) => { lastCell = { key: cell.getRow().getData()._key, field: cell.getField() }; });
       table.on('rowSelectionChanged', updateInfo);
       table.on('dataFiltered', () => setTimeout(updateInfo));
@@ -703,42 +823,36 @@ function linesPage() {
       flushSaves();
     },
 
-    /** Xuất phiếu: dòng chưa có phiếu → cấp số mới; dòng đã có phiếu → in lại đúng số cũ. */
+    /**
+     * Xuất phiếu: dòng chưa có phiếu → cấp số mới; dòng đã có phiếu → in lại đúng số cũ;
+     * chọn dòng mới + dòng của MỘT phiếu cũ → thêm các dòng mới vào phiếu cũ đó (giữ số).
+     */
     async issue() {
       const rows = table.getSelectedRows();
       if (!rows.length) { App.toast('Hãy tick chọn các dòng cần xuất phiếu.', 'error'); return; }
       const data = rows.map((r) => r.getData());
       const codes = Array.from(new Set(data.map((d) => d.request_code).filter(Boolean)));
-      const uncoded = data.filter((d) => !d.request_code);
+      const uncoded = rows.filter((r) => !r.getData().request_code);
       if (codes.length && uncoded.length) {
-        App.toast('Đang chọn lẫn ' + uncoded.length + ' dòng chưa có phiếu và ' + (data.length - uncoded.length) +
-          ' dòng đã có phiếu. Hãy chỉ chọn một loại.', 'error');
+        if (codes.length > 1) {
+          App.toast('Đang chọn ' + uncoded.length + ' dòng chưa có phiếu cùng dòng của ' + codes.length + ' phiếu khác nhau (' +
+            codes.slice(0, 3).join(', ') + '). Muốn thêm vào phiếu cũ thì chỉ chọn kèm dòng của đúng 1 phiếu.', 'error');
+          return;
+        }
+        if (!confirm('Thêm ' + uncoded.length + ' dòng chưa có phiếu vào phiếu ' + codes[0] + ' (giữ nguyên số phiếu)?')) return;
+        await appendRows(uncoded, codes[0]);
         return;
       }
       if (codes.length) { window.open(App.printUrl(codes), '_blank'); return; }
-      const bad = data.filter((d) => !d.name || !(d.qty_requested > 0));
-      if (bad.length) { App.toast(bad.length + ' dòng thiếu tên vật tư hoặc số lượng yêu cầu.', 'error'); return; }
+      if (!checkIssuable(data)) return;
 
       const win = App.openPrintWindow();
       if (win) win.document.write('<p style="font:16px sans-serif;padding:24px">Đang cấp số phiếu…</p>');
       try {
-        await flushAll();
-        const ids = rows.map((r) => r.getData().id);
-        if (ids.some((id) => !id)) throw new Error('Có dòng chưa lưu xong, thử lại sau giây lát.');
-        let res;
-        try {
-          res = await Api.call('requests.issue', { line_ids: ids });
-        } catch (e) {
-          if (e.code !== 'MIXED') throw e;
-          if (!confirm(e.message)) { if (win) win.close(); return; }
-          res = await Api.call('requests.issue', { line_ids: ids, confirm_mixed: true });
-        }
-        rows.forEach((r) => {
-          const d = Object.assign({}, r.getData(), { request_code: res.code });
-          safeUpdate(r, Object.assign({ request_code: res.code }, derive(d)));
-          r.deselect();
-          r.reformat();
-        });
+        const ids = await savedIds(rows);
+        const res = await callMixed('requests.issue', { line_ids: ids });
+        if (!res) { if (win) win.close(); return; }
+        markIssued(rows, res.code);
         App.toast('Đã cấp số phiếu ' + res.code + ' cho ' + ids.length + ' dòng.', 'ok', 6000);
         if (win) win.location.href = App.printUrl([res.code]);
         else window.open(App.printUrl([res.code]), '_blank');
@@ -746,6 +860,32 @@ function linesPage() {
         if (win) win.close();
         App.toast(e.message, 'error');
       }
+    },
+
+    /** Nút "Thêm vào phiếu có sẵn…": các dòng chưa có phiếu đang chọn → vào một phiếu đã xuất (quên vật tư). */
+    async appendPrompt() {
+      const rows = table.getSelectedRows();
+      const uncoded = rows.filter((r) => !r.getData().request_code);
+      if (!uncoded.length) { App.toast('Hãy tick chọn các dòng CHƯA có số phiếu cần thêm vào phiếu cũ.', 'error'); return; }
+      if (uncoded.length < rows.length) { App.toast('Có ' + (rows.length - uncoded.length) + ' dòng đã có số phiếu — hãy bỏ chọn các dòng đó.', 'error'); return; }
+      const s = prompt('Thêm ' + uncoded.length + ' dòng vào phiếu số (vd. ' + (lastCode || 'YC2026-295') + '):', lastCode || '');
+      if (!s || !s.trim()) return;
+      await appendRows(uncoded, s.trim().toUpperCase());
+    },
+
+    /** Quản trị: gỡ các dòng đã chọn khỏi phiếu (dòng trở lại "chưa có phiếu" để sửa / xuất lại / thêm vào phiếu khác). */
+    async detach() {
+      const rows = table.getSelectedRows().filter((r) => r.getData().request_code);
+      if (!rows.length) { App.toast('Hãy tick chọn các dòng đã có số phiếu cần gỡ.', 'error'); return; }
+      const codes = Array.from(new Set(rows.map((r) => r.getData().request_code)));
+      if (!confirm('Gỡ ' + rows.length + ' dòng khỏi phiếu ' + codes.slice(0, 6).join(', ') + (codes.length > 6 ? '…' : '') +
+        '?\n\nDòng vẫn giữ nguyên dữ liệu và lần nhận hàng, chỉ trở lại trạng thái "chưa có phiếu". Số phiếu không được cấp lại. Việc này được ghi vào nhật ký.')) return;
+      try {
+        await flushAll();
+        await Api.call('requests.detach', { line_ids: rows.map((r) => r.getData().id) });
+        markIssued(rows, null);
+        App.toast('Đã gỡ ' + rows.length + ' dòng khỏi phiếu ' + codes.join(', ') + '.', 'ok', 6000);
+      } catch (e) { App.toast(e.message, 'error'); }
     },
 
     reprintPrompt() {
@@ -785,8 +925,10 @@ function linesPage() {
         if (!confirm('CẢNH BÁO: ' + coded.length + ' dòng đã thuộc phiếu ' + list + '.\n\nXóa sẽ làm các phiếu này mất những dòng đó khi in lại (số phiếu vẫn giữ nguyên, không cấp lại), ' +
           'và xóa cả lần nhận hàng của các dòng đó. Việc này được ghi vào nhật ký.\n\nVẫn xóa ' + rows.length + ' dòng đã chọn?')) return;
       } else if (!confirm('Xóa ' + rows.length + ' dòng đã chọn?')) return;
-      const ids = rows.map((r) => r.getData().id).filter(Boolean);
       try {
+        // dòng mới đang được tạo trên máy chủ: chờ có id rồi mới xóa, kẻo xóa trên màn hình mà máy chủ vẫn còn
+        if (rows.some((r) => inflight.has(r.getData()._key))) { try { await flushAll(); } catch (e) { /* dòng lỗi lưu: chỉ có trên máy này */ } }
+        const ids = rows.map((r) => r.getData().id).filter(Boolean);
         if (ids.length) await Api.call('lines.delete', { ids });
         rows.forEach((r) => { pending.delete(r.getData()._key); r.delete(); });
         ui.unsaved = pending.size;

@@ -183,7 +183,8 @@ test('xóa và nhân bản dòng', () => {
 });
 
 test('nhận hàng nhiều đợt cộng dồn', () => {
-  const { b, user, admin } = fresh();
+  const { b, user, adminPassword } = fresh();
+  let admin = b.call('login', { username: 'admin', password: adminPassword }).token;
   const [l] = addLines(b, user, 1, { qty_requested: 10 });
   b.call('receipts.add', { line_id: l.id, qty: 4, received_date: '2026-10-24' }, user);
   const r = b.call('receipts.add', { line_id: l.id, qty: 6, received_date: '2026-10-26' }, user);
@@ -192,8 +193,15 @@ test('nhận hàng nhiều đợt cộng dồn', () => {
   assert.throws(() => b.call('receipts.add', { line_id: l.id, qty: 0 }, user), /lớn hơn 0/);
   const recs = b.call('receipts.list', { line_id: l.id }, user);
   assert.equal(recs.length, 2);
-  assert.throws(() => b.call('receipts.delete', { id: recs[0].id }, user), errCode('FORBIDDEN'));
-  assert.equal(b.call('receipts.delete', { id: recs[0].id }, admin).line.qty_received, 6);
+  // người ghi nhận tự xóa được lần nhận của mình trong ngày; sang hôm sau thì chỉ Quản trị
+  assert.equal(b.call('receipts.delete', { id: recs[0].id }, user).line.qty_received, 6);
+  b.setNow('2026-10-24T08:00:00+07:00');
+  const user2 = b.call('login', { username: 'nam', password: 'matkhau123' }).token;
+  admin = b.call('login', { username: 'admin', password: adminPassword }).token;
+  assert.throws(() => b.call('receipts.delete', { id: recs[1].id }, user2), errCode('FORBIDDEN'));
+  assert.equal(b.call('receipts.delete', { id: recs[1].id }, admin).line.qty_received, 0);
+  const r3 = b.call('receipts.add', { line_id: l.id, qty: 1 }, admin).receipt;
+  assert.throws(() => b.call('receipts.delete', { id: r3.id }, user2), errCode('FORBIDDEN'));
 });
 
 test('đổi mật khẩu', () => {
@@ -377,4 +385,55 @@ test('setup chuẩn hóa bảng material_groups bị tách dòng và dữ liệu
   b.call('catalog.save', { table: 'material_groups', row: { name: 'Nhóm dự phòng' } }, admin);
   b.setup();
   assert.deepEqual(b.call('bootstrap', {}, admin).catalogs.material_groups.map((g) => g.name), ['C', 'E', 'Nhóm dự phòng']);
+});
+
+test('thêm dòng vào phiếu đã có: giữ số phiếu, không tốn số mới, đầu phiếu bổ sung, kiểm tra trước khi ghi', () => {
+  const { b, user, admin } = fresh();
+  const common = { unit: 'Phòng Kỹ thuật', project_code: 'HM01', project_name: 'Hạng mục 1', delivery_location: 'Xưởng 1', need_date: '2026-10-30' };
+  const items = [1, 2, 3, 4].map((i) => ({ name: 'Vật tư ' + i, uom: 'Cái', qty_requested: i }));
+  const first = b.call('lines.create', { common, items, issue: true, header: { note: 'gấp' } }, user);
+  assert.equal(first.code, 'YC2026-295');
+  // quên 1 vật tư → thêm bằng form vào đúng phiếu cũ
+  const more = b.call('lines.create', { common: Object.assign({}, common, { need_date: '2026-10-28' }), items: [{ name: 'Vật tư 5', qty_requested: 5 }], append_code: 'yc2026-295' }, user);
+  assert.equal(more.code, 'YC2026-295');
+  assert.equal(more.lines[0].request_code, 'YC2026-295');
+  const got = b.call('requests.get', { codes: ['YC2026-295'] }, user)[0];
+  assert.equal(got.lines.length, 5);
+  assert.equal(got.request.line_count, 5);
+  assert.equal(got.request.header_json.note, 'gấp');
+  assert.equal(got.request.header_json.need_date, '2026-10-28');
+  assert.equal(got.request.header_json.unit, 'Phòng Kỹ thuật');
+  // thêm dòng đã lưu trên bảng (requests.append); khác hạng mục → hỏi lại; sai số phiếu / dòng đã có phiếu → lỗi
+  const [x] = addLines(b, user, 1, { project_code: 'HM02', project_name: 'Hạng mục 2' });
+  assert.throws(() => b.call('requests.append', { code: 'YC2026-295', line_ids: [x.id] }, user), errCode('MIXED'));
+  assert.throws(() => b.call('requests.append', { code: 'YC2026-999', line_ids: [x.id] }, user), errCode('NOT_FOUND'));
+  assert.throws(() => b.call('requests.append', { code: 'YC2026-295', line_ids: [first.lines[0].id] }, user), errCode('ALREADY_ISSUED'));
+  assert.equal(b.call('requests.append', { code: 'YC2026-295', line_ids: [x.id], confirm_mixed: true }, user).code, 'YC2026-295');
+  const h = b.call('requests.get', { codes: ['YC2026-295'] }, user)[0].request.header_json;
+  assert.equal(h.project_code, 'HM01; HM02');
+  // form với số phiếu sai / khác hạng mục chưa xác nhận: không ghi dòng nào
+  const before = b.call('lines.list', {}, user).rows.length;
+  assert.throws(() => b.call('lines.create', { common, items: [{ name: 'Y', qty_requested: 1 }], append_code: 'YC2026-999' }, user), errCode('NOT_FOUND'));
+  assert.throws(() => b.call('lines.create', { common: { project_code: 'HM03' }, items: [{ name: 'Y', qty_requested: 1 }], append_code: 'YC2026-295' }, user), errCode('MIXED'));
+  assert.equal(b.call('lines.list', {}, user).rows.length, before);
+  // không tốn số: phiếu mới tiếp theo vẫn là 296
+  const [z] = addLines(b, user, 1);
+  assert.equal(b.call('requests.issue', { line_ids: [z.id] }, admin).code, 'YC2026-296');
+});
+
+test('Quản trị gỡ dòng khỏi phiếu: dòng về "chưa có phiếu", giữ dữ liệu, có nhật ký; user thường bị chặn', () => {
+  const { b, user, admin } = fresh();
+  const lines = addLines(b, user, 3);
+  b.call('requests.issue', { line_ids: lines.map((l) => l.id) }, user);
+  assert.throws(() => b.call('requests.detach', { line_ids: [lines[0].id] }, user), errCode('FORBIDDEN'));
+  const res = b.call('requests.detach', { line_ids: [lines[0].id] }, admin);
+  assert.deepEqual(res.requests, ['YC2026-295']);
+  const got = b.call('requests.get', { codes: ['YC2026-295'] }, user)[0];
+  assert.equal(got.lines.length, 2);
+  assert.equal(got.request.line_count, 2);
+  // dòng gỡ ra sửa được và xuất lại vào phiếu khác / thêm lại vào phiếu cũ
+  b.call('lines.save', { lines: [{ id: lines[0].id, qty_requested: 9 }] }, user);
+  assert.equal(b.call('requests.append', { code: 'YC2026-295', line_ids: [lines[0].id] }, user).code, 'YC2026-295');
+  const audit = b.call('audit.list', { q: 'gỡ khỏi phiếu' }, admin);
+  assert.equal(audit.length, 1);
 });

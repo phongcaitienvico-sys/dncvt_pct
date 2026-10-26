@@ -41,6 +41,8 @@ function linesPage() {
   let ui = null; // proxy Alpine (gán trong init) — ghi qua đây thì giao diện mới cập nhật
   let projectByCode = {};
   let projectByName = {};
+  const normProjectCode = (c) => { const s = String(c || '').trim(); return /^[Mm][Ss]\d+$/.test(s) ? s.toUpperCase() : s; };
+  const findProjectName = (c) => (c ? projectByCode[c] || projectByCode[String(c).trim().toUpperCase()] : undefined);
 
   const newKey = () => 'n' + Date.now().toString(36) + (keySeq++);
   const isAdmin = () => App.user && App.user.role === 'admin';
@@ -148,7 +150,7 @@ function linesPage() {
       numCol('qty_on_hand', 'SL tồn kho', 85, true),
       { field: 'need_date', title: 'Ngày cần có', width: 110, editor: 'date', formatter: fmtDateCell, mutatorEdit: (v) => Logic.parseDate(v) },
       { field: 'project_code', title: 'Mã HM', width: 95, editor: 'list', editorParams: listEditor(projectValues, true) },
-      { field: 'project_name', title: 'Hạng mục', width: 180, editor: 'list', editorParams: listEditor(projectValues.map((p) => projectByCode[p.value] || p.label), true) },
+      { field: 'project_name', title: 'Hạng mục', width: 180, editor: 'list', editorParams: listEditor(projectValues.map((p) => findProjectName(p.value) || p.label), true) },
       { field: 'purpose', title: 'Mục đích sử dụng', width: 200, editor: 'list', editorParams: historyEditor('purpose', false) },
       { field: 'equipment_name', title: 'Tên thiết bị', width: 140, editor: 'list', editorParams: historyEditor('equipment_name', false) },
       { field: 'delivery_location', title: 'Địa điểm giao', width: 130, editor: 'list', editorParams: historyEditor('delivery_location') },
@@ -278,7 +280,12 @@ function linesPage() {
       const h = history().byName[Logic.fold(d.name)];
       if (h) ['uom', 'material_group', 'unit_price'].forEach((f) => { if ((d[f] === null || d[f] === undefined || d[f] === '') && h[f]) changes[f] = h[f]; });
     }
-    if (field === 'project_code' && d.project_code && projectByCode[d.project_code]) changes.project_name = projectByCode[d.project_code];
+    if (field === 'project_code' && d.project_code) {
+      const normCode = normProjectCode(d.project_code);
+      if (normCode !== d.project_code) changes.project_code = normCode;
+      const pName = findProjectName(normCode);
+      if (pName) changes.project_name = pName;
+    }
     if (field === 'project_name' && d.project_name && projectByName[d.project_name]) changes.project_code = projectByName[d.project_name];
     Object.assign(changes, derive(Object.assign({}, d, changes)));
     safeUpdate(row, changes);
@@ -752,7 +759,10 @@ function linesPage() {
       boot.catalogs.project_items.forEach((p) => {
         const code = p.item_code || p.project_code;
         const name = p.item_name || p.project_name;
-        if (code) projectByCode[code] = name;
+        if (code) {
+          projectByCode[code] = name;
+          projectByCode[String(code).trim().toUpperCase()] = name;
+        }
         if (name) projectByName[name] = code;
       });
       table = new Tabulator('#grid', {

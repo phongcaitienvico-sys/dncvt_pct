@@ -11,7 +11,10 @@ __pycache__/
 *.pyc
 .venv/
 .env
+.env.*
+!.env.example
 .clasp.json
 .clasprc.json
 .worktrees/
 .superpowers/
+supabase/.temp/

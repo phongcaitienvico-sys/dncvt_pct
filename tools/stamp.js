@@ -11,7 +11,7 @@ let n = 0;
 fs.readdirSync(dir).filter((f) => f.endsWith('.html')).forEach((f) => {
   const p = path.join(dir, f);
   const s = fs.readFileSync(p, 'utf8');
-  const out = s.replace(/((?:src|href)="(?:js|css)\/[\w.\-]+\.(?:js|css))(?:\?v=[\w]+)?"/g, (m, a) => { n++; return `${a}?v=${v}"`; });
+  const out = s.replace(/((?:src|href)="(?:js|css)\/[\w./\-]+\.(?:js|css))(?:\?v=[\w]+)?"/g, (m, a) => { n++; return `${a}?v=${v}"`; });
   if (out !== s) fs.writeFileSync(p, out);
 });
 console.log('Đã gắn phiên bản ' + v + ' vào ' + n + ' liên kết.');

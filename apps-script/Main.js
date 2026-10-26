@@ -38,6 +38,9 @@ function dispatch_(req) {
   if (!req || typeof req !== 'object') fail_('Yêu cầu không hợp lệ');
   const route = routes_()[req.action];
   if (!route) fail_('Thao tác không hợp lệ: ' + req.action);
+  if (CONFIG.MAINTENANCE_MODE && route.write) {
+    fail_('Hệ thống đã nâng cấp sang máy chủ mới. Vui lòng bấm Ctrl+F5 để tải lại trang.', 'MAINTENANCE');
+  }
   const params = req.params && typeof req.params === 'object' ? req.params : {};
   const ctx = { user: null, audit: [] };
   if (route.auth !== false) ctx.user = verifyToken_(req.token);

@@ -6,9 +6,10 @@
   <title>Đăng nhập · Đề nghị cấp vật tư</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;600;700&display=swap&subset=vietnamese" rel="stylesheet">
-  <link rel="stylesheet" href="css/app.css?v=mvp2xiv9">
-  <script src="js/config.js?v=mvp2xiv9"></script>
-  <script src="js/app.js?v=mvp2xiv9"></script>
+  <link rel="stylesheet" href="css/app.css?v=mvpbv1sq">
+  <script src="js/config.js?v=mvpbv1sq"></script>
+  <script src="js/vendor/supabase.min.js?v=mvpbv1sq"></script>
+  <script src="js/app.js?v=mvpbv1sq"></script>
 </head>
 <body>
   <div class="login-wrap">
@@ -35,7 +36,7 @@
       const fd = new FormData(ev.target);
       btn.disabled = true; btn.textContent = 'Đang đăng nhập…'; err.textContent = '';
       try {
-        Api.saveLogin(await Api.call('login', { username: fd.get('username'), password: fd.get('password') }));
+        await Api.saveLogin(await Api.call('login', { username: fd.get('username'), password: fd.get('password') }));
         location.replace(next);
       } catch (e) {
         err.textContent = e.message;

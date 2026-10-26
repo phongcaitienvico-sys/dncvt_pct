@@ -16,4 +16,6 @@ const CONFIG = {
   MAX_TEXT_LENGTH: 1000,
   BACKUP_FOLDER: 'NCVT_backup',
   BACKUP_KEEP: 30,
+  // Bật true vào ngày Cutover sang Supabase để chặn ghi trên tab trình duyệt cũ (vẫn cho phép đọc / export.all đối soát)
+  MAINTENANCE_MODE: false,
 };

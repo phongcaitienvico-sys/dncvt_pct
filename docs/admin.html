@@ -7,12 +7,13 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;600;700&display=swap&subset=vietnamese" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/tabulator-tables@6.3.1/dist/css/tabulator_simple.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="css/app.css?v=mvp2xiv9">
+  <link rel="stylesheet" href="css/app.css?v=mvpbv1sq">
   <script src="https://cdn.jsdelivr.net/npm/tabulator-tables@6.3.1/dist/js/tabulator.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script src="js/config.js?v=mvp2xiv9"></script>
-  <script src="js/logic.js?v=mvp2xiv9"></script>
-  <script src="js/app.js?v=mvp2xiv9"></script>
+  <script src="js/config.js?v=mvpbv1sq"></script>
+  <script src="js/logic.js?v=mvpbv1sq"></script>
+  <script src="js/vendor/supabase.min.js?v=mvpbv1sq"></script>
+  <script src="js/app.js?v=mvpbv1sq"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js"></script>
   <style>
     .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 12px; flex-wrap: wrap; }
@@ -143,8 +144,11 @@
           Còn lại <b x-text="purge.preview && purge.preview.lines_left"></b> dòng, <b x-text="purge.preview && purge.preview.requests_left"></b> phiếu.
         </div>
       </div>
-      <div class="muted small">
+      <div class="muted small" x-show="!isSupabase()">
         Sao lưu = chép nguyên file Google Sheet vào thư mục Drive <code>NCVT_backup</code> (tự động mỗi đêm 23h, giữ 30 bản).
+      </div>
+      <div class="muted small" x-show="isSupabase()">
+        Sao lưu 2 lớp: bản chụp nguyên tử lưu trực tiếp trên cơ sở dữ liệu (giữ 30 bản gần nhất) + tải file Excel toàn bộ 12 bảng về máy tính.
       </div>
       <div>
         <b>Import dữ liệu từ Google Sheet cũ</b> (làm một lần khi bắt đầu dùng app):
@@ -174,6 +178,7 @@
       return {
         tab: 'cat', catTable: 'suppliers', catCount: 0, users: [], audit: [], auditQ: '', busy: false, busyText: '',
         purge: { before: '2024-11-01', preview: null, result: null },
+        isSupabase() { return Boolean(window.APP_CONFIG && window.APP_CONFIG.BACKEND_MODE === 'supabase'); },
 
         async init() {
           await App.init({ admin: true }); // có bản lưu thì về ngay, bản mới tải ở nền (App.bootFresh)
@@ -269,12 +274,17 @@
         async purgeRun() {
           const pv = this.purge.preview;
           if (!pv || pv.before !== this.purge.before) { App.toast('Hãy bấm "Xem trước" với mốc ngày này trước.', 'error'); return; }
+          const backupNote = this.isSupabase()
+            ? 'Hệ thống sẽ tự tải bản sao lưu Excel về máy tính và chụp bản sao lưu nguyên tử trên cơ sở dữ liệu trước khi xóa. Tiếp tục?'
+            : 'Hệ thống sẽ sao lưu cả file Google Sheet trước khi xóa (thư mục Drive NCVT_backup). Tiếp tục?';
           if (!confirm('XÓA VĨNH VIỄN dữ liệu có Ngày yêu cầu trước ' + Logic.fmtDate(pv.before) + ':\n\n' +
             '• ' + pv.lines + ' dòng vật tư\n• ' + pv.requests + ' phiếu đã xuất\n• ' + pv.receipts + ' lần nhận hàng\n\n' +
-            'Còn lại ' + pv.lines_left + ' dòng, ' + pv.requests_left + ' phiếu. Hệ thống sẽ sao lưu cả file Google Sheet trước khi xóa ' +
-            '(thư mục Drive NCVT_backup). Tiếp tục?')) return;
+            'Còn lại ' + pv.lines_left + ' dòng, ' + pv.requests_left + ' phiếu. ' + backupNote)) return;
           this.busy = true; this.busyText = 'Đang sao lưu rồi xóa… (có thể mất 1–2 phút, đừng đóng trang)';
           try {
+            if (this.isSupabase()) {
+              await this.downloadExportExcel('ncvt-truoc-khi-xoa-' + Logic.todayIso() + '.xlsx');
+            }
             this.purge.result = await Api.call('data.purge', { before: pv.before, confirm: true });
             this.purge.preview = null;
             this.busyText = 'Đã xóa xong. Sao lưu trước khi xóa: ' + (this.purge.result.backup || '(không có gì để xóa)');
@@ -313,24 +323,35 @@
           try { this.audit = await Api.call('audit.list', { q: this.auditQ, limit: 500 }); } catch (e) { App.toast(e.message, 'error'); }
         },
 
+        buildExportSheets(data) {
+          return Object.keys(data).map((name) => {
+            const rows = data[name] || [];
+            const fields = rows.length ? Object.keys(rows[0]) : ['id'];
+            return {
+              name, rows,
+              columns: fields.map((f) => [f, f, (r) => (r[f] && typeof r[f] === 'object' ? JSON.stringify(r[f]) : r[f])]),
+            };
+          });
+        },
+        async downloadExportExcel(fileName) {
+          const data = await Api.call('export.all');
+          App.exportExcel(fileName, this.buildExportSheets(data));
+        },
         async backup() {
           this.busy = true; this.busyText = 'Đang sao lưu…';
-          try { const r = await Api.call('backup.run'); this.busyText = 'Đã sao lưu: ' + r.name; } catch (e) { this.busyText = ''; App.toast(e.message, 'error'); }
+          try {
+            const r = await Api.call('backup.run');
+            if (this.isSupabase()) {
+              await this.downloadExportExcel('ncvt-sao-luu-' + Logic.todayIso() + '.xlsx');
+            }
+            this.busyText = 'Đã sao lưu: ' + (r && (r.name || r.backup) || 'thành công');
+          } catch (e) { this.busyText = ''; App.toast(e.message, 'error'); }
           this.busy = false;
         },
         async exportAll() {
           this.busy = true; this.busyText = 'Đang lấy dữ liệu…';
           try {
-            const data = await Api.call('export.all');
-            const sheets = Object.keys(data).map((name) => {
-              const rows = data[name];
-              const fields = rows.length ? Object.keys(rows[0]) : ['id'];
-              return {
-                name, rows,
-                columns: fields.map((f) => [f, f, (r) => (r[f] && typeof r[f] === 'object' ? JSON.stringify(r[f]) : r[f])]),
-              };
-            });
-            App.exportExcel('ncvt-toan-bo-' + Logic.todayIso() + '.xlsx', sheets);
+            await this.downloadExportExcel('ncvt-toan-bo-' + Logic.todayIso() + '.xlsx');
             this.busyText = 'Đã xuất file Excel.';
           } catch (e) { this.busyText = ''; App.toast(e.message, 'error'); }
           this.busy = false;

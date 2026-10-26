@@ -56,6 +56,23 @@ const server = http.createServer((req, res) => {
       else if (action === 'lines.list') {
         const columns = Object.keys(lines[0]);
         data = { columns, rows: lines.map(row => columns.map(key => row[key])) };
+      } else if (action === 'lines.sync') {
+        const columns = Object.keys(lines[0]);
+        const from = (params && params.from) || '';
+        const subset = params && params.mode === 'recent'
+          ? lines.filter(r => !r.request_date || !r.request_code || r.request_date >= from)
+          : params && params.mode === 'older'
+            ? lines.filter(r => r.request_date && r.request_code && r.request_date < from)
+            : lines;
+        data = {
+          mode: (params && params.mode) || 'full',
+          columns,
+          rows: subset.map(row => columns.map(key => row[key])),
+          ids: lines.map(row => row.id),
+          recv: {},
+          now: '2026-04-20T09:00:00',
+          server_now: '2026-04-20T09:00:00',
+        };
       } else if (action === 'requests.get') data = [{
         request: { code: 'YC2026-TEST', header_json: lines[0] }, lines: printLines,
       }];

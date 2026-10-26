@@ -7,13 +7,14 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;600;700&display=swap&subset=vietnamese" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/tabulator-tables@6.3.1/dist/css/tabulator_simple.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="css/app.css?v=mvp2xiv9">
+  <link rel="stylesheet" href="css/app.css?v=mvpbv1sq">
   <script src="https://cdn.jsdelivr.net/npm/tabulator-tables@6.3.1/dist/js/tabulator.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script src="js/config.js?v=mvp2xiv9"></script>
-  <script src="js/logic.js?v=mvp2xiv9"></script>
-  <script src="js/app.js?v=mvp2xiv9"></script>
-  <script src="js/lines.js?v=mvp2xiv9"></script>
+  <script src="js/config.js?v=mvpbv1sq"></script>
+  <script src="js/logic.js?v=mvpbv1sq"></script>
+  <script src="js/vendor/supabase.min.js?v=mvpbv1sq"></script>
+  <script src="js/app.js?v=mvpbv1sq"></script>
+  <script src="js/lines.js?v=mvpbv1sq"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js"></script>
   <style>
     .stats { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
@@ -83,23 +84,44 @@
               { field: 'unit', title: 'Đơn vị', width: 130 },
             ],
           });
+          const normProjectKey = (raw) => {
+            const s = String(raw || '').trim();
+            return /^[Mm][Ss]\d+$/.test(s) ? s.toUpperCase() : s;
+          };
+          const map = new Map();
+          const canonicalKey = new Map();
+          boot.catalogs.project_items.forEach((p) => {
+            const code = normProjectKey(p.item_code || p.project_code);
+            if (code) {
+              map.set(code, { key: code, label: code + ' — ' + (p.item_name || p.project_name || '') });
+              canonicalKey.set(code.toLowerCase(), code);
+            }
+          });
+          const resolveKey = (raw) => {
+            const k = normProjectKey(raw);
+            return canonicalKey.get(k.toLowerCase()) || k;
+          };
           try {
             all = (await App.loadLines()).objects.map((l) => Object.assign({}, l, {
               _st: Logic.computeStatus(l, this.today), amount: Logic.amount(l), qty_missing: Logic.qtyMissing(l),
-              _pkey: l.project_code || l.project_name || '',
+              _pkey: '',
             }));
           } catch (e) { App.toast(e.message, 'error'); return; }
-          const map = new Map();
-          boot.catalogs.project_items.forEach((p) => {
-            const code = p.item_code || p.project_code;
-            if (code) map.set(code, { key: code, label: code + ' — ' + (p.item_name || p.project_name || '') });
-          });
           all.forEach((l) => {
-            if (l._pkey && !map.has(l._pkey)) map.set(l._pkey, { key: l._pkey, label: [l.project_code, l.project_name].filter(Boolean).join(' — ') });
+            l._pkey = resolveKey(l.project_code || l.project_name || '');
+            if (l._pkey && !map.has(l._pkey)) {
+              const dispCode = l.project_code ? resolveKey(l.project_code) : null;
+              map.set(l._pkey, { key: l._pkey, label: [dispCode, l.project_name].filter(Boolean).join(' — ') });
+              canonicalKey.set(l._pkey.toLowerCase(), l._pkey);
+            }
           });
           this.projects = Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label, 'vi'));
           const fromUrl = new URLSearchParams(location.search).get('hm');
-          if (fromUrl) { const p = this.projects.find((x) => x.key === fromUrl); if (p) { this.pick = p.label; this.choose(); } }
+          if (fromUrl) {
+            const uKey = resolveKey(fromUrl);
+            const p = this.projects.find((x) => x.key === uKey || x.key.toLowerCase() === String(fromUrl).trim().toLowerCase());
+            if (p) { this.pick = p.label; this.choose(); }
+          }
         },
         choose() {
           const p = this.projects.find((x) => x.label === this.pick) || this.projects.find((x) => Logic.fold(x.label).includes(Logic.fold(this.pick)));

@@ -7,5 +7,9 @@
     "test": "node --test tests/*.test.js",
     "bundle": "node tools/bundle.js",
     "stamp": "node tools/stamp.js"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.11",
+    "@supabase/supabase-js": "^2.118.0"
   }
 }

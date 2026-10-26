@@ -1,0 +1,28 @@
+project_id = "de-nghi-cap-vat-tu"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public"]
+extra_search_path = ["public"]
+max_rows = 10000
+
+[db]
+port = 54322
+shadow_port = 54320
+major_version = 15
+
+[auth]
+enabled = true
+site_url = "http://localhost:8787"
+enable_signup = false
+jwt_expiry = 43200
+enable_refresh_token_rotation = true
+
+[auth.email]
+enable_signup = false
+enable_confirmations = false
+
+[functions.admin-ops]
+enabled = true
+verify_jwt = false

@@ -2,6 +2,35 @@
 (function () {
   const TOKEN_KEY = 'ncvt_token';
   const USER_KEY = 'ncvt_user';
+  const REFRESH_KEY = 'ncvt_refresh';
+  const SB_STORAGE_KEY = 'ncvt_sb_auth';
+
+  const EDGE_ACTIONS = new Set(['login', 'auth.changePassword', 'users.save']);
+  const RPC_MAP = {
+    'bootstrap': 'rpc_bootstrap',
+    'lines.list': 'rpc_lines_list',
+    'lines.sync': 'rpc_lines_sync',
+    'lines.save': 'rpc_lines_save',
+    'lines.create': 'rpc_lines_create',
+    'lines.delete': 'rpc_lines_delete',
+    'lines.duplicate': 'rpc_lines_duplicate',
+    'requests.issue': 'rpc_requests_issue',
+    'requests.append': 'rpc_requests_append',
+    'requests.detach': 'rpc_requests_detach',
+    'requests.get': 'rpc_requests_get',
+    'requests.list': 'rpc_requests_list',
+    'receipts.add': 'rpc_receipts_add',
+    'receipts.list': 'rpc_receipts_list',
+    'receipts.delete': 'rpc_receipts_delete',
+    'catalog.save': 'rpc_catalog_save',
+    'catalog.delete': 'rpc_catalog_delete',
+    'signers.seed': 'rpc_signers_seed',
+    'data.purge': 'rpc_data_purge',
+    'users.list': 'rpc_users_list',
+    'audit.list': 'rpc_audit_list',
+    'export.all': 'rpc_export_all',
+    'backup.run': 'rpc_backup_run',
+  };
 
   const storage = {
     get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
@@ -41,13 +70,231 @@
     clear: () => idb.run('readwrite', (st) => st.clear()),
   };
 
+  let _sb = null;
+  let _sbKey = '';
+
+  function isSupabaseMode() {
+    const cfg = window.APP_CONFIG || {};
+    return Boolean(cfg.BACKEND_MODE === 'supabase' && cfg.SUPABASE_URL && cfg.SUPABASE_ANON_KEY);
+  }
+
+  function getSupabaseClient() {
+    const cfg = window.APP_CONFIG || {};
+    const key = (cfg.SUPABASE_URL || '') + '|' + (cfg.SUPABASE_ANON_KEY || '');
+    if (_sb && _sbKey === key) return _sb;
+    if (!window.supabase || typeof window.supabase.createClient !== 'function') {
+      throw Object.assign(new Error('Thiếu thư viện kết nối Supabase (js/vendor/supabase.min.js).'), { code: 'CONFIG' });
+    }
+    _sbKey = key;
+    _sb = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: false,
+        storageKey: SB_STORAGE_KEY,
+      },
+    });
+    if (_sb.auth && typeof _sb.auth.onAuthStateChange === 'function') {
+      _sb.auth.onAuthStateChange((event, session) => {
+        if (!isSupabaseMode()) return;
+        if ((event === 'TOKEN_REFRESHED' || event === 'SIGNED_IN') && session && session.access_token) {
+          storage.set(TOKEN_KEY, session.access_token);
+          if (session.refresh_token) storage.set(REFRESH_KEY, session.refresh_token);
+        } else if (event === 'SIGNED_OUT') {
+          storage.del(TOKEN_KEY);
+          storage.del(USER_KEY);
+          storage.del(REFRESH_KEY);
+          storage.del(SB_STORAGE_KEY);
+          storage.del(SB_STORAGE_KEY + '-user');
+        }
+      });
+    }
+    return _sb;
+  }
+
+  function tokenExpiresAtSec(session, fallbackJwt) {
+    if (session && typeof session.expires_at === 'number') return session.expires_at;
+    const jwt = (session && session.access_token) || fallbackJwt;
+    if (!jwt || typeof jwt !== 'string') return null;
+    try {
+      const parts = jwt.split('.');
+      if (parts.length < 2) return null;
+      const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+      const json = atob(b64.padEnd(b64.length + ((4 - (b64.length % 4)) % 4), '='));
+      const payload = JSON.parse(json);
+      return typeof payload.exp === 'number' ? payload.exp : null;
+    } catch (e) { return null; }
+  }
+
+  async function ensureFreshSupabaseToken(sb) {
+    const sRes = await sb.auth.getSession();
+    let session = sRes && sRes.data ? sRes.data.session : null;
+    if (!session && storage.get(TOKEN_KEY) && storage.get(REFRESH_KEY)) {
+      const restored = await sb.auth.setSession({
+        access_token: storage.get(TOKEN_KEY),
+        refresh_token: storage.get(REFRESH_KEY),
+      });
+      session = restored && restored.data ? restored.data.session : null;
+    }
+    if (session) {
+      if (session.access_token) storage.set(TOKEN_KEY, session.access_token);
+      if (session.refresh_token) storage.set(REFRESH_KEY, session.refresh_token);
+      const exp = tokenExpiresAtSec(session, session.access_token);
+      if (exp !== null && exp - Date.now() / 1000 < 120) {
+        const rRes = await sb.auth.refreshSession();
+        if (rRes && rRes.data && rRes.data.session) {
+          session = rRes.data.session;
+          if (session.access_token) storage.set(TOKEN_KEY, session.access_token);
+          if (session.refresh_token) storage.set(REFRESH_KEY, session.refresh_token);
+        } else if (rRes && rRes.error) {
+          const em = String(rRes.error.message || '');
+          if (/user_banned|session_not_found|invalid_grant/i.test(em) || exp <= Date.now() / 1000) {
+            Api.logout();
+            App.goLogin();
+            throw Object.assign(new Error('Phiên đăng nhập đã hết hạn hoặc tài khoản đã bị khóa. Vui lòng đăng nhập lại.'), { code: 'AUTH' });
+          }
+        }
+      }
+    }
+    return (session && session.access_token) || Api.token();
+  }
+
+  async function callSupabase(action, params) {
+    const cfg = window.APP_CONFIG;
+    const sb = getSupabaseClient();
+    const activeToken = action === 'login' ? null : await ensureFreshSupabaseToken(sb);
+
+    if (EDGE_ACTIONS.has(action)) {
+      const baseUrl = String(cfg.SUPABASE_URL).replace(/\/+$/, '');
+      let res;
+      try {
+        res = await fetch(baseUrl + '/functions/v1/admin-ops', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            apikey: cfg.SUPABASE_ANON_KEY,
+            Authorization: 'Bearer ' + (activeToken || cfg.SUPABASE_ANON_KEY),
+          },
+          body: JSON.stringify({ action, params: params || {} }),
+        });
+      } catch (e) {
+        throw Object.assign(new Error('Không kết nối được máy chủ. Kiểm tra mạng rồi thử lại.'), { code: 'NETWORK' });
+      }
+      let j;
+      try { j = await res.json(); } catch (e) {
+        if ((res.status === 401 || res.status === 403) && action !== 'login') {
+          Api.logout(); App.goLogin();
+          throw Object.assign(new Error('Phiên đăng nhập đã hết hạn.'), { code: 'AUTH' });
+        }
+        throw Object.assign(new Error('Máy chủ trả về dữ liệu lạ (HTTP ' + res.status + ').'), { code: 'BAD_RESPONSE' });
+      }
+      if (j && j.ok === false) {
+        const isAuth = j.code === 'AUTH' || ((res.status === 401 || res.status === 403) && j.code !== 'FORBIDDEN') || /JWT|user_banned|session_not_found/i.test(String(j.error || ''));
+        if (isAuth && action !== 'login') {
+          j.code = 'AUTH';
+          Api.logout(); App.goLogin();
+        }
+        throw Object.assign(new Error(j.error || 'Lỗi máy chủ'), { code: j.code, details: j.details });
+      }
+      if (!j || j.ok !== true) {
+        if ((res.status === 401 || res.status === 403) && action !== 'login') {
+          Api.logout(); App.goLogin();
+          throw Object.assign(new Error((j && (j.message || j.msg || j.error)) || 'Phiên đăng nhập đã hết hạn.'), { code: 'AUTH' });
+        }
+        throw Object.assign(new Error((j && (j.message || j.error)) || ('Máy chủ trả về dữ liệu lạ (HTTP ' + res.status + ').')), { code: 'BAD_RESPONSE' });
+      }
+      if (action === 'auth.changePassword' && j.data && (j.data.token || j.data.access_token || (j.data.session && j.data.session.access_token))) {
+        await Api.saveLogin(Object.assign({ user: Api.user() }, j.data));
+      }
+      return j.data;
+    }
+
+    const rpcName = RPC_MAP[action];
+    if (!rpcName) throw Object.assign(new Error('Thao tác không hợp lệ: ' + action), { code: 'INVALID_ACTION' });
+
+    let rpcRes;
+    try {
+      rpcRes = await sb.rpc(rpcName, { p_params: params || {} });
+    } catch (e) {
+      throw Object.assign(new Error('Không kết nối được máy chủ. Kiểm tra mạng rồi thử lại.'), { code: 'NETWORK' });
+    }
+    if (rpcRes && rpcRes.error) {
+      const err = rpcRes.error;
+      const status = rpcRes.status;
+      if (status === 0 || (!err.code && /^(TypeError|FetchError):/i.test(String(err.message || '')))) {
+        throw Object.assign(new Error('Không kết nối được máy chủ. Kiểm tra mạng rồi thử lại.'), { code: 'NETWORK' });
+      }
+      let msg = err.message || 'Lỗi máy chủ';
+      let code = err.code || 'INTERNAL';
+      let details = null;
+      let parsed = null;
+      if (err.code === 'P0001' && err.details) {
+        if (typeof err.details === 'object') parsed = err.details;
+        else if (typeof err.details === 'string') {
+          try { parsed = JSON.parse(err.details); } catch (e) { /* giữ nguyên chuỗi details */ }
+        }
+        if (parsed && typeof parsed === 'object') {
+          if (parsed.code) code = parsed.code;
+          if (parsed.details !== undefined) details = parsed.details;
+          if (parsed.message) msg = parsed.message;
+        } else {
+          details = err.details;
+        }
+      }
+      const rawText = [msg, err.message, typeof err.details === 'string' ? err.details : '', err.hint].filter(Boolean).join(' ');
+      const isAuthErr =
+        status === 401 ||
+        (status === 403 && code !== 'FORBIDDEN') ||
+        err.code === 'PGRST301' ||
+        err.code === 'PGRST302' ||
+        err.code === '42501' ||
+        (parsed && parsed.code === 'AUTH') ||
+        code === 'AUTH' ||
+        /JWT|user_banned|session_not_found/i.test(rawText);
+      if (isAuthErr) {
+        code = 'AUTH';
+        Api.logout();
+        App.goLogin();
+      }
+      throw Object.assign(new Error(msg), { code, details });
+    }
+    return rpcRes ? rpcRes.data : null;
+  }
+
   const Api = {
     token: () => storage.get(TOKEN_KEY),
     user() { try { return JSON.parse(storage.get(USER_KEY) || 'null'); } catch (e) { return null; } },
-    saveLogin(data) { storage.set(TOKEN_KEY, data.token); storage.set(USER_KEY, JSON.stringify(data.user)); },
-    logout() { storage.del(TOKEN_KEY); storage.del(USER_KEY); idb.clear(); },
+    saveLogin(data) {
+      if (!data) return;
+      const sess = data.session && typeof data.session === 'object' ? data.session : null;
+      const tok = data.token !== undefined ? data.token : (data.access_token !== undefined ? data.access_token : (sess ? sess.access_token : undefined));
+      const ref = data.refresh_token || (sess ? sess.refresh_token : null);
+      if (tok !== undefined) storage.set(TOKEN_KEY, tok);
+      if (data.user !== undefined) storage.set(USER_KEY, JSON.stringify(data.user));
+      if (ref) {
+        storage.set(REFRESH_KEY, ref);
+        if (isSupabaseMode() && tok) {
+          return getSupabaseClient().auth.setSession({
+            access_token: tok,
+            refresh_token: ref,
+          }).catch(() => {});
+        }
+      }
+    },
+    logout() {
+      storage.del(TOKEN_KEY);
+      storage.del(USER_KEY);
+      storage.del(REFRESH_KEY);
+      storage.del(SB_STORAGE_KEY);
+      storage.del(SB_STORAGE_KEY + '-user');
+      idb.clear();
+      if (isSupabaseMode()) {
+        try { getSupabaseClient().auth.signOut({ scope: 'local' }).catch(() => {}); } catch (e) { /* bỏ qua */ }
+      }
+    },
 
     async call(action, params) {
+      if (isSupabaseMode()) return callSupabase(action, params);
       let res;
       try {
         res = await fetch(window.APP_CONFIG.API_URL, {
@@ -66,6 +313,9 @@
       if (!j.ok) {
         if (j.code === 'AUTH') { Api.logout(); App.goLogin(); }
         throw Object.assign(new Error(j.error), { code: j.code, details: j.details });
+      }
+      if (action === 'auth.changePassword' && j.data && (j.data.token || j.data.access_token || (j.data.session && j.data.session.access_token))) {
+        await Api.saveLogin(Object.assign({ user: Api.user() }, j.data));
       }
       return j.data;
     },

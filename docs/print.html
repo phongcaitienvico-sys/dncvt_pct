@@ -6,12 +6,12 @@
   <title>In phiếu</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:ital,wght@0,400;0,600;0,700;1,400&display=swap&subset=vietnamese" rel="stylesheet">
-  <link rel="stylesheet" href="css/app.css?v=mvp1juk2">
+  <link rel="stylesheet" href="css/app.css?v=mvp2xiv9">
   <link rel="stylesheet" href="css/print.css?v=20261023-layout3">
   <script src="https://cdn.jsdelivr.net/npm/nunjucks@3.2.4/browser/nunjucks.min.js"></script>
-  <script src="js/config.js?v=mvp1juk2"></script>
-  <script src="js/logic.js?v=mvp1juk2"></script>
-  <script src="js/app.js?v=mvp1juk2"></script>
+  <script src="js/config.js?v=mvp2xiv9"></script>
+  <script src="js/logic.js?v=mvp2xiv9"></script>
+  <script src="js/app.js?v=mvp2xiv9"></script>
   <script src="js/print_mapping.js?v=20261023-layout3"></script>
 </head>
 <body class="print">
@@ -87,9 +87,11 @@
       let boot, data, src;
       try {
         boot = await App.init();
-        [data, src] = await Promise.all([
+        // chờ danh mục mới nhất (song song với tải phiếu) để tên người ký đúng như vừa sửa trong Quản trị
+        [data, src, boot] = await Promise.all([
           Api.call('requests.get', { codes }),
           fetch('print/' + tpl + '.html', { cache: 'no-cache' }).then((r) => { if (!r.ok) throw new Error('Không tải được mẫu ' + tpl); return r.text(); }),
+          App.bootFresh,
         ]);
       } catch (e) { msg.textContent = e.message; return; }
 
@@ -133,9 +135,28 @@
       const aliasMap = {};
       Object.keys(M.name_aliases || {}).forEach((k) => { aliasMap[Logic.fold(k)] = M.name_aliases[k]; });
       const fullName = (v) => String(v || '').split(/\s*;\s*/).filter(Boolean).map((n) => aliasMap[Logic.fold(n)] || n).join('; ');
+      // Người ký sửa trong Quản trị → Danh mục → Người ký phiếu đề nghị; chưa có danh mục đó thì dùng bộ trong print_mapping.js
+      const signerSets = (() => {
+        const rows = (boot.catalogs.signers || []).filter((r) => r.title);
+        if (!rows.length) return null;
+        const sets = new Map();
+        rows.slice().sort((a, b) => (Number(a.position) || 0) - (Number(b.position) || 0) || a.id - b.id).forEach((r) => {
+          const key = Logic.fold(r.unit_contains || '').trim();
+          if (!sets.has(key)) sets.set(key, []);
+          sets.get(key).push({ title: r.title, name: r.name || '', name_from: r.name ? null : 'requester' });
+        });
+        return sets;
+      })();
       const signaturesFor = (unit, requester) => {
-        const set = (m.signature_sets || []).find((x) => Logic.fold(unit).includes(Logic.fold(x.unit_contains)));
-        return ((set && set.signatures) || m.signatures || []).map((s) => Object.assign({}, s, {
+        let list;
+        if (signerSets) {
+          const key = Array.from(signerSets.keys()).find((k) => k && Logic.fold(unit).includes(k));
+          list = signerSets.get(key !== undefined ? key : '') || [];
+        } else {
+          const set = (m.signature_sets || []).find((x) => Logic.fold(unit).includes(Logic.fold(x.unit_contains)));
+          list = (set && set.signatures) || m.signatures || [];
+        }
+        return list.map((s) => Object.assign({}, s, {
           name: s.name_from === 'requester' ? fullName(requester) : (s.name || ''),
         }));
       };

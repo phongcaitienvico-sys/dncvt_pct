@@ -503,8 +503,17 @@ function linesPage() {
     });
     const rm = diff.removed.map((id) => byId.get(id)).filter(Boolean);
     try {
-      if (up.length) await table.updateOrAddData(up);
-      if (rm.length) await table.deleteRow(rm);
+      if (up.length + rm.length > 200) {
+        // Đổi nhiều (vd. Quản trị vừa dọn dữ liệu cũ): vẽ lại cả bảng một lần — xóa/sửa từng dòng hàng nghìn lần sẽ treo trình duyệt
+        const gone = new Set(rm);
+        const byKey = new Map();
+        table.getData().forEach((d) => { if (!gone.has(d._key)) byKey.set(d._key, d); });
+        up.forEach((d) => byKey.set(d._key, d));
+        await table.replaceData(Array.from(byKey.values()));
+      } else {
+        if (up.length) await table.updateOrAddData(up);
+        if (rm.length) await table.deleteRow(rm);
+      }
     } catch (e) { console.warn('applyDiff', e); }
     if (up.length || rm.length) {
       historyCache = null;

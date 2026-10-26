@@ -148,6 +148,7 @@ function setupStore_(store) {
     seedList('units', ['Phòng Kỹ thuật', 'Xưởng Cơ khí', 'Phòng Kế hoạch vật tư']);
     seedList('uoms', ['Cái', 'Bộ', 'Chiếc', 'Kg', 'Mét', 'Tấm', 'Cây', 'Lít', 'Hộp', 'Cuộn', 'Đôi']);
     migrateMaterialGroups_(store);
+    if (!tableAll_('signers').length) tableInsert_('signers', DEFAULT_SIGNERS);
     if (!tableAll_('suppliers').length) {
       tableInsert_('suppliers', [{ code: 'KHVT', name: 'Phòng Kế hoạch vật tư', field: 'Nội bộ' }]);
     }

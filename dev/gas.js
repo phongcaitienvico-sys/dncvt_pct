@@ -120,6 +120,10 @@ function makeJsonStore(file) {
       if (c < 0) return;
       values.forEach((v, i) => { if (t.rows[i]) t.rows[i][c] = v === null || v === undefined ? '' : String(v); });
     },
+    keepRows(name, keep) {
+      const t = tab(name);
+      t.rows = keep.map((i) => t.rows[i]);
+    },
     deleteRows(name, indexes) {
       const t = tab(name);
       indexes.slice().sort((a, b) => b - a).forEach((i) => t.rows.splice(i, 1));

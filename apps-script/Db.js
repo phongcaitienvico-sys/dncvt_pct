@@ -364,6 +364,20 @@ function sheetStore_() {
       sh.getRange(2, col, values.length, 1).setNumberFormat('@')
         .setValues(values.map(function (v) { return [safe(v === null || v === undefined ? '' : String(v))]; }));
     },
+    /** Chỉ giữ các dòng dữ liệu có chỉ số `keep` (theo thứ tự đọc): ghi lại cả bảng 1 lần, bỏ dòng thừa — nhanh hơn xóa từng dòng. */
+    keepRows: function (name, keep) {
+      const t = store.read(name);
+      const sh = sheet(name);
+      const lr = sh.getLastRow();
+      const lc = t.headers.length;
+      const rows = keep.map(function (i) { return t.rows[i]; });
+      delete cache[name];
+      if (lr > 1) sh.getRange(2, 1, lr - 1, lc).clearContent();
+      if (rows.length) sh.getRange(2, 1, rows.length, lc).setNumberFormat('@').setValues(rows.map(function (r) { return r.map(safe); }));
+      const spare = 200; // giữ ít dòng trống dự phòng, xóa phần còn lại cho file nhẹ
+      const extra = sh.getMaxRows() - (rows.length + 1) - spare;
+      if (extra > 0) sh.deleteRows(rows.length + 2 + spare, extra);
+    },
     deleteRows: function (name, indexes) {
       delete cache[name];
       const sh = sheet(name);

@@ -2,7 +2,7 @@
 
 function apiBootstrap_(p, ctx) {
   const catalogs = {};
-  CATALOG_TABLES.forEach(function (t) { catalogs[t] = tableAll_(t); });
+  CATALOG_TABLES.forEach(function (t) { catalogs[t] = t === 'signers' ? signersAll_() : tableAll_(t); });
   return {
     user: publicUser_(ctx.user),
     catalogs: catalogs,
@@ -25,12 +25,12 @@ function cleanCatalogRow_(table, row) {
 // Mỗi mục danh mục phải có ít nhất một trong các trường này (mục trống làm hỏng danh sách chọn trên bảng vật tư)
 const CATALOG_REQUIRED = {
   units: ['name'], uoms: ['name'], material_groups: ['name'], suppliers: ['code', 'name'],
-  project_items: ['item_code', 'item_name', 'project_code', 'project_name'],
+  project_items: ['item_code', 'item_name', 'project_code', 'project_name'], signers: ['title'],
 };
 // Trường không được trùng giữa các mục (so không phân biệt hoa/thường, khoảng trắng)
 const CATALOG_UNIQUE = { units: 'name', uoms: 'name', material_groups: 'name', suppliers: 'code', project_items: 'item_code' };
 const CATALOG_LABELS = {
-  name: 'Tên', code: 'Mã', item_code: 'Mã hạng mục', item_name: 'Tên hạng mục', project_code: 'Mã dự án', project_name: 'Tên dự án',
+  name: 'Tên', code: 'Mã', title: 'Chức danh', item_code: 'Mã hạng mục', item_name: 'Tên hạng mục', project_code: 'Mã dự án', project_name: 'Tên dự án',
 };
 
 function catalogKey_(v) {
@@ -44,7 +44,7 @@ function checkCatalogRow_(table, after, before) {
     fail_('Chưa nhập ' + req.map(function (f) { return '"' + CATALOG_LABELS[f] + '"'; }).join(' hoặc ') + ' — mục trống không được lưu.');
   }
   const u = CATALOG_UNIQUE[table];
-  if (!after[u] || (before && catalogKey_(before[u]) === catalogKey_(after[u]))) return;
+  if (!u || !after[u] || (before && catalogKey_(before[u]) === catalogKey_(after[u]))) return;
   const dup = tableAll_(table).find(function (r) { return r.id !== after.id && catalogKey_(r[u]) === catalogKey_(after[u]); });
   if (dup) fail_('"' + after[u] + '" đã có trong danh mục.', 'DUPLICATE');
 }
@@ -69,6 +69,23 @@ function apiCatalogSave_(p, ctx) {
   return rec;
 }
 
+/** Bảng người ký có thể chưa có trên Sheet cũ (chưa chạy lại setup): coi như trống, trang in dùng bộ mặc định trong print_mapping.js. */
+function signersAll_() {
+  try {
+    return tableAll_('signers');
+  } catch (e) {
+    if (e.code === 'SETUP') return [];
+    throw e;
+  }
+}
+
+/** Quản trị: tạo tab người ký (nếu thiếu) và điền bộ mặc định khi đang trống. */
+function apiSignersSeed_() {
+  store_().ensure('signers', SCHEMA.signers.map(function (c) { return c[0]; }));
+  if (!tableAll_('signers').length) tableInsert_('signers', DEFAULT_SIGNERS);
+  return tableAll_('signers');
+}
+
 function apiCatalogDelete_(p, ctx) {
   const table = String(p.table || '');
   if (CATALOG_TABLES.indexOf(table) < 0) fail_('Danh mục không hợp lệ');
@@ -76,6 +93,70 @@ function apiCatalogDelete_(p, ctx) {
   const rows = tableFind_(table, ids);
   ids.forEach(function (id) { if (rows[id]) audit_(ctx, table, id, '(xóa)', JSON.stringify(rows[id]), ''); });
   return { deleted: tableDelete_(table, ids) };
+}
+
+/**
+ * Dọn dữ liệu cũ: xóa dòng vật tư có Ngày yêu cầu trước `before`, kèm lần nhận hàng và phiếu không còn dòng nào.
+ * - Dòng không có ngày yêu cầu: giữ lại. Phiếu có dòng sau mốc: giữ NGUYÊN phiếu (không xóa lẻ dòng của nó).
+ * - confirm != true → chỉ đếm (xem trước). confirm = true → sao lưu cả file trước, rồi ghi lại bảng một lần.
+ * Bộ đếm số phiếu và nhật ký giữ nguyên.
+ */
+function apiDataPurge_(p, ctx) {
+  const before = cleanDate_(p.before, 'Mốc ngày');
+  if (!before) fail_('Chưa chọn mốc ngày.');
+  if (before > todayStr_()) fail_('Mốc ngày không được sau hôm nay.');
+  const s = store_();
+  const read = function (table) {
+    const t = s.read(table);
+    return t.rows.map(function (r) { return rowToObj_(table, t.headers, r); });
+  };
+  const lines = read('lines');
+  const isOld = function (l) { return !!l.request_date && l.request_date < before; };
+  const codeHasNew = {};
+  lines.forEach(function (l) { if (l.request_code && !isOld(l)) codeHasNew[l.request_code] = true; });
+
+  const goneLine = {};
+  const goneCode = {};
+  const keepLines = [];
+  lines.forEach(function (l, i) {
+    if (l.id === null) return; // dòng trống trong Sheet: bỏ luôn
+    if (isOld(l) && !(l.request_code && codeHasNew[l.request_code])) {
+      goneLine[l.id] = true;
+      if (l.request_code) goneCode[l.request_code] = true;
+    } else keepLines.push(i);
+  });
+  const liveCode = {};
+  keepLines.forEach(function (i) { if (lines[i].request_code) liveCode[lines[i].request_code] = true; });
+
+  const receipts = read('receipts');
+  const keepReceipts = [];
+  receipts.forEach(function (r, i) { if (r.id !== null && !goneLine[r.line_id]) keepReceipts.push(i); });
+  const requests = read('requests');
+  const keepRequests = [];
+  requests.forEach(function (r, i) {
+    if (r.id === null) return;
+    const empty = !liveCode[r.code];
+    if (empty && (goneCode[r.code] || String(r.issued_at || '').slice(0, 10) < before)) return;
+    keepRequests.push(i);
+  });
+
+  const out = {
+    before: before,
+    lines: Object.keys(goneLine).length, lines_left: keepLines.length,
+    receipts: receipts.filter(function (r) { return r.id !== null; }).length - keepReceipts.length,
+    requests: requests.filter(function (r) { return r.id !== null; }).length - keepRequests.length,
+    requests_left: keepRequests.length,
+  };
+  if (p.confirm !== true) return Object.assign({ preview: true }, out);
+  if (!out.lines && !out.requests && !out.receipts) return Object.assign({ preview: false, backup: null }, out);
+
+  out.backup = s.backup(); // sao lưu NGUYÊN file trước khi xóa
+  s.keepRows('lines', keepLines);
+  s.keepRows('receipts', keepReceipts);
+  s.keepRows('requests', keepRequests);
+  audit_(ctx, 'lines', '', '(dọn dữ liệu trước ' + before + ')', '',
+    out.lines + ' dòng, ' + out.requests + ' phiếu, ' + out.receipts + ' lần nhận; sao lưu: ' + out.backup);
+  return Object.assign({ preview: false }, out);
 }
 
 function apiUsersList_() {

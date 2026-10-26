@@ -24,6 +24,8 @@ function routes_() {
     'receipts.delete': { write: true, fn: apiReceiptsDelete_ }, // user thường: chỉ lần nhận của mình trong ngày
     'catalog.save': { write: true, admin: true, fn: apiCatalogSave_ },
     'catalog.delete': { write: true, admin: true, fn: apiCatalogDelete_ },
+    'signers.seed': { write: true, admin: true, fn: apiSignersSeed_ },
+    'data.purge': { write: true, admin: true, fn: apiDataPurge_ },
     'users.list': { admin: true, fn: apiUsersList_ },
     'users.save': { write: true, admin: true, fn: apiUsersSave_ },
     'audit.list': { admin: true, fn: apiAuditList_ },

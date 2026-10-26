@@ -42,7 +42,7 @@ python scripts/import_sheet.py samples/QL_De_nghi_cap_vat_tu.xlsx
 | **Nhận hàng** | Dùng được trên điện thoại. Nhập SL + ngày nhận, nhận nhiều đợt. Nhập nhầm thì tự xóa lần nhận của mình trong ngày rồi nhận lại. |
 | **Theo hạng mục** | Tổng tiền, % đã nhận, xuất Excel. |
 | **Phiếu đã xuất** | Mở/in lại phiếu; chọn nhiều phiếu → 1 file PDF; Đơn đặt hàng theo NCC; Phiếu bàn giao. |
-| **Quản trị** | Danh mục, người dùng, nhật ký, Sao lưu ngay, Xuất toàn bộ ra Excel. |
+| **Quản trị** | Danh mục (kể cả **Người ký phiếu đề nghị**: chức danh + họ tên theo đơn vị), người dùng, nhật ký, Sao lưu ngay, Xuất toàn bộ ra Excel, **Dọn dữ liệu cũ** (xem trước → tự sao lưu → xóa dòng trước một ngày). |
 
 **Chỉnh mẫu in:** chỉ sửa `docs/js/print_mapping.js` (tên công ty, mã biểu mẫu, ô đầu phiếu, cột, số dòng/trang, chữ ký) và các template `docs/print/*.html` (cú pháp Jinja/Nunjucks). Số dòng mỗi trang chọn được 10–40 ngay trên trang in. Trạng thái dòng tính trong `computeStatus()` ở `docs/js/logic.js`.
 

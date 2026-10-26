@@ -7,12 +7,12 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;600;700&display=swap&subset=vietnamese" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/tabulator-tables@6.3.1/dist/css/tabulator_simple.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="css/app.css?v=mvp1juk2">
+  <link rel="stylesheet" href="css/app.css?v=mvp2xiv9">
   <script src="https://cdn.jsdelivr.net/npm/tabulator-tables@6.3.1/dist/js/tabulator.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script src="js/config.js?v=mvp1juk2"></script>
-  <script src="js/logic.js?v=mvp1juk2"></script>
-  <script src="js/app.js?v=mvp1juk2"></script>
+  <script src="js/config.js?v=mvp2xiv9"></script>
+  <script src="js/logic.js?v=mvp2xiv9"></script>
+  <script src="js/app.js?v=mvp2xiv9"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js"></script>
   <style>
     .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 12px; flex-wrap: wrap; }
@@ -47,10 +47,19 @@
           <option value="material_groups">Nhóm vật tư</option>
           <option value="units">Đơn vị đề xuất</option>
           <option value="uoms">Đơn vị tính</option>
+          <option value="signers">Người ký phiếu đề nghị</option>
         </select>
         <button type="button" @click="addCatalogRow()">+ Thêm</button>
         <button type="button" class="danger" @click="deleteCatalogRows()">Xóa dòng đã chọn</button>
-        <span class="muted small">Nhấp ô để sửa, tự lưu. Sửa danh mục không làm đổi các phiếu đã xuất.</span>
+        <button type="button" x-show="catTable === 'signers' && !catCount" @click="seedSigners()" :disabled="busy">Tạo bộ người ký mặc định</button>
+        <span class="muted small" x-show="catTable !== 'signers'">Nhấp ô để sửa, tự lưu. Sửa danh mục không làm đổi các phiếu đã xuất.</span>
+      </div>
+      <div class="panel small" x-show="catTable === 'signers'" style="margin-bottom:8px">
+        Khối chữ ký cuối <b>Phiếu đề nghị cấp vật tư</b>, in theo <b>Thứ tự</b> từ trái sang phải.
+        <b>Áp dụng khi đơn vị chứa</b>: nếu "Đơn vị đề nghị" trên phiếu có chữ này (không phân biệt dấu, hoa/thường) thì dùng bộ đó,
+        vd. <code>Cải tiến</code> → P.Cải tiến, P.Cải tiến C. Để <b>trống</b> = bộ mặc định cho mọi đơn vị còn lại.
+        <b>Họ tên</b> để trống = lấy "Người yêu cầu" của phiếu (dùng cho Người lập phiếu).
+        Đổi tên ở đây thì in lại phiếu cũ cũng ra tên mới.
       </div>
       <div id="cat-grid" x-ignore></div>
     </section>
@@ -116,6 +125,24 @@
         <button type="button" @click="exportAll()" :disabled="busy">Xuất toàn bộ ra Excel</button>
         <span class="muted small" x-text="busyText"></span>
       </div>
+      <div style="border:1px solid var(--line);border-radius:var(--radius);padding:10px">
+        <b>Dọn dữ liệu cũ</b> <span class="muted small">— giảm dung lượng, tải bảng nhanh hơn</span>
+        <div class="small muted" style="margin:4px 0 8px">
+          Xóa các dòng vật tư có <b>Ngày yêu cầu</b> trước mốc dưới đây, kèm lần nhận hàng và phiếu không còn dòng nào.
+          Dòng không có ngày được giữ. Phiếu có dòng sau mốc được giữ nguyên cả phiếu. Số phiếu tiếp tục như cũ, không cấp lại.
+          Luôn tự sao lưu cả file trước khi xóa.
+        </div>
+        <div class="toolbar">
+          <label class="small">Xóa dữ liệu trước ngày <input type="date" x-model="purge.before" @change="purge.preview = null"></label>
+          <button type="button" @click="purgePreview()" :disabled="busy">Xem trước</button>
+          <button type="button" class="danger" @click="purgeRun()" :disabled="busy || !purge.preview || !purge.preview.lines && !purge.preview.requests">Xóa vĩnh viễn…</button>
+        </div>
+        <div class="small" x-show="purge.preview" style="margin-top:6px">
+          Sẽ xóa <b x-text="purge.preview && purge.preview.lines"></b> dòng vật tư,
+          <b x-text="purge.preview && purge.preview.requests"></b> phiếu, <b x-text="purge.preview && purge.preview.receipts"></b> lần nhận hàng.
+          Còn lại <b x-text="purge.preview && purge.preview.lines_left"></b> dòng, <b x-text="purge.preview && purge.preview.requests_left"></b> phiếu.
+        </div>
+      </div>
       <div class="muted small">
         Sao lưu = chép nguyên file Google Sheet vào thư mục Drive <code>NCVT_backup</code> (tự động mỗi đêm 23h, giữ 30 bản).
       </div>
@@ -137,6 +164,7 @@
       material_groups: [['name', 'Nhóm vật tư', 120], ['description', 'Giải thích', 560]],
       units: [['name', 'Đơn vị đề xuất', 300]],
       uoms: [['name', 'Đơn vị tính', 200]],
+      signers: [['unit_contains', 'Áp dụng khi đơn vị chứa (trống = mặc định)', 230], ['position', 'Thứ tự', 80], ['title', 'Chức danh', 200], ['name', 'Họ tên (trống = Người yêu cầu)', 240]],
     };
 
     function adminPage() {
@@ -144,7 +172,8 @@
       const saveChains = {};
       let touched = false; // đã sửa / thêm dòng → không vẽ lại bảng khi bản danh mục mới tải xong ở nền
       return {
-        tab: 'cat', catTable: 'suppliers', users: [], audit: [], auditQ: '', busy: false, busyText: '',
+        tab: 'cat', catTable: 'suppliers', catCount: 0, users: [], audit: [], auditQ: '', busy: false, busyText: '',
+        purge: { before: '2024-11-01', preview: null, result: null },
 
         async init() {
           await App.init({ admin: true }); // có bản lưu thì về ngay, bản mới tải ở nền (App.bootFresh)
@@ -168,7 +197,22 @@
           grid.setColumns([
             { formatter: 'rowSelection', titleFormatter: 'rowSelection', hozAlign: 'center', headerSort: false, width: 36 },
           ].concat(cols.map(([field, title, width]) => ({ field, title, width, editor: 'input' }))));
-          grid.setData(boot.catalogs[this.catTable].map((r) => Object.assign({}, r, { _k: 'i' + r.id })));
+          let rows = (boot.catalogs[this.catTable] || []).slice();
+          if (this.catTable === 'signers') {
+            rows.sort((a, b) => String(a.unit_contains || '').localeCompare(String(b.unit_contains || ''), 'vi') || (Number(a.position) || 0) - (Number(b.position) || 0) || a.id - b.id);
+          }
+          this.catCount = rows.length;
+          grid.setData(rows.map((r) => Object.assign({}, r, { _k: 'i' + r.id })));
+        },
+        async seedSigners() {
+          this.busy = true;
+          try {
+            App.boot.catalogs.signers = await Api.call('signers.seed');
+            this.loadCatalog();
+            App.refreshBoot().catch(() => {});
+            App.toast('Đã tạo bộ người ký mặc định.', 'ok');
+          } catch (e) { App.toast(e.message, 'error'); }
+          this.busy = false;
         },
         addCatalogRow() {
           touched = true;
@@ -179,6 +223,7 @@
           const list = App.boot.catalogs[table];
           if (saved) { const i = list.findIndex((r) => r.id === saved.id); if (i >= 0) list[i] = saved; else list.push(saved); }
           if (removedIds) App.boot.catalogs[table] = list.filter((r) => !removedIds.includes(r.id));
+          if (table === this.catTable) this.catCount = App.boot.catalogs[table].length;
           App.refreshBoot().catch(() => {});
         },
         saveCatalogRow(row) {
@@ -212,6 +257,29 @@
             if (ids.length) { await Api.call('catalog.delete', { table: this.catTable, ids }); this.patchBoot(this.catTable, null, ids); }
             rows.forEach((r) => r.delete());
           } catch (e) { App.toast(e.message, 'error'); }
+        },
+
+        /** Dọn dữ liệu cũ: luôn xem trước số lượng; xóa thật thì máy chủ sao lưu cả file trước. */
+        async purgePreview() {
+          this.purge.preview = null; this.purge.result = null;
+          this.busy = true; this.busyText = 'Đang đếm dữ liệu…';
+          try { this.purge.preview = await Api.call('data.purge', { before: this.purge.before }); this.busyText = ''; } catch (e) { this.busyText = ''; App.toast(e.message, 'error'); }
+          this.busy = false;
+        },
+        async purgeRun() {
+          const pv = this.purge.preview;
+          if (!pv || pv.before !== this.purge.before) { App.toast('Hãy bấm "Xem trước" với mốc ngày này trước.', 'error'); return; }
+          if (!confirm('XÓA VĨNH VIỄN dữ liệu có Ngày yêu cầu trước ' + Logic.fmtDate(pv.before) + ':\n\n' +
+            '• ' + pv.lines + ' dòng vật tư\n• ' + pv.requests + ' phiếu đã xuất\n• ' + pv.receipts + ' lần nhận hàng\n\n' +
+            'Còn lại ' + pv.lines_left + ' dòng, ' + pv.requests_left + ' phiếu. Hệ thống sẽ sao lưu cả file Google Sheet trước khi xóa ' +
+            '(thư mục Drive NCVT_backup). Tiếp tục?')) return;
+          this.busy = true; this.busyText = 'Đang sao lưu rồi xóa… (có thể mất 1–2 phút, đừng đóng trang)';
+          try {
+            this.purge.result = await Api.call('data.purge', { before: pv.before, confirm: true });
+            this.purge.preview = null;
+            this.busyText = 'Đã xóa xong. Sao lưu trước khi xóa: ' + (this.purge.result.backup || '(không có gì để xóa)');
+          } catch (e) { this.busyText = ''; App.toast(e.message, 'error'); }
+          this.busy = false;
         },
 
         async loadUsers() {

@@ -452,3 +452,56 @@ test('danh mục: không lưu mục trống, không trùng tên; sửa trường
   const units = b.call('bootstrap', {}, admin).catalogs.units;
   assert.ok(units.every((x) => x.name));
 });
+
+test('dọn dữ liệu cũ: xem trước không xóa; xóa dòng trước mốc + lần nhận + phiếu hết dòng; giữ phiếu vắt mốc, dòng không ngày; có sao lưu', () => {
+  const { b, user, admin } = fresh();
+  const old1 = addLines(b, user, 2, { request_date: '2024-10-15' });
+  const r1 = b.call('requests.issue', { line_ids: old1.map((l) => l.id) }, user).code;
+  b.call('receipts.add', { line_id: old1[0].id, qty: 1 }, user);
+  const [straddleOld] = addLines(b, user, 1, { request_date: '2024-09-01' });
+  const [straddleNew] = addLines(b, user, 1, { request_date: '2024-11-05' });
+  const r2 = b.call('requests.issue', { line_ids: [straddleOld.id, straddleNew.id] }, user).code;
+  const [noDate] = b.call('lines.save', { lines: [{ key: 'x', name: 'Không ngày', qty_requested: 1, request_date: null }] }, user).map((r) => r.line);
+  b.call('lines.save', { lines: [{ id: noDate.id, request_date: '' }] }, user);
+  const [loose] = addLines(b, user, 1, { request_date: '2023-01-01' });
+  const recent = addLines(b, user, 2, { request_date: '2025-01-01' });
+
+  assert.throws(() => b.call('data.purge', { before: '2024-11-01' }, user), errCode('FORBIDDEN'));
+  const prev = b.call('data.purge', { before: '2024-11-01' }, admin);
+  assert.equal(prev.preview, true);
+  assert.equal(prev.lines, 3); // 2 dòng phiếu r1 + 1 dòng lẻ 2023; dòng cũ của phiếu r2 được giữ
+  assert.equal(prev.requests, 1);
+  assert.equal(prev.receipts, 1);
+  assert.equal(b.call('lines.list', {}, user).rows.length, 8);
+
+  const done = b.call('data.purge', { before: '2024-11-01', confirm: true }, admin);
+  assert.equal(done.preview, false);
+  assert.ok(done.backup);
+  const list = b.call('lines.list', {}, user);
+  const ids = list.rows.map((r) => r[list.columns.indexOf('id')]);
+  assert.deepEqual(ids.sort((a, b2) => a - b2), [straddleOld.id, straddleNew.id, noDate.id, recent[0].id, recent[1].id].sort((a, b2) => a - b2));
+  assert.ok(!ids.includes(loose.id));
+  assert.throws(() => b.call('requests.get', { codes: [r1] }, user), errCode('NOT_FOUND'));
+  assert.equal(b.call('requests.get', { codes: [r2] }, user)[0].lines.length, 2);
+  assert.equal(b.store.db.tabs.receipts.rows.length, 0);
+  // số phiếu tiếp tục, không cấp lại số đã xóa; lines.sync báo id còn lại để máy khách bỏ dòng đã xóa
+  assert.equal(b.call('requests.issue', { line_ids: [recent[0].id] }, user).code, 'YC2026-297');
+  assert.equal(b.call('lines.sync', { since: null }, user).ids.length, 5);
+  assert.equal(b.call('audit.list', { q: 'dọn dữ liệu' }, admin).length, 1);
+  assert.throws(() => b.call('data.purge', { before: '2099-01-01' }, admin), /sau hôm nay/);
+});
+
+test('người ký phiếu: setup điền bộ mặc định; bootstrap không lỗi khi Sheet cũ chưa có tab; seed tạo tab', () => {
+  const { b, admin, user } = fresh();
+  const signers = b.call('bootstrap', {}, user).catalogs.signers;
+  assert.equal(signers.length, 8);
+  assert.ok(signers.some((s) => s.unit_contains === 'Cải tiến' && s.title === 'T.P Cải tiến' && s.name === 'Trần Việt Tiệp'));
+  assert.ok(signers.some((s) => !s.unit_contains && s.title === 'T.P Thiết bị' && s.name === 'Vũ Văn Trường'));
+  assert.throws(() => b.call('catalog.save', { table: 'signers', row: { name: 'X' } }, admin), /Chức danh/);
+  // Sheet cũ chưa có tab signers
+  delete b.store.db.tabs.signers;
+  assert.deepEqual(b.call('bootstrap', {}, user).catalogs.signers, []);
+  assert.throws(() => b.call('signers.seed', {}, user), errCode('FORBIDDEN'));
+  assert.equal(b.call('signers.seed', {}, admin).length, 8);
+  assert.equal(b.call('signers.seed', {}, admin).length, 8); // chạy lại không nhân đôi
+});

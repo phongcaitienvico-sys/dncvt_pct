@@ -53,6 +53,8 @@ window.PRINT_MAPPING = {
       { label: 'Người mua /NCC', field: 'supplier', width: '6%' },
       { label: 'Yêu cầu chào giá', field: '', width: '4%' },        // ghi tay
     ],
+    // NGƯỜI KÝ giờ sửa trong Quản trị → Danh mục → "Người ký phiếu đề nghị". Hai bộ dưới đây chỉ dùng khi Sheet
+    // chưa có danh mục đó (chưa bấm "Tạo bộ người ký mặc định" / chưa chạy lại setup).
     // Khối chữ ký mặc định = phòng Thiết bị (và mọi đơn vị khác). name_from: 'requester' → lấy tên ở cột "Người yêu cầu".
     signatures: [
       { title: 'Người lập phiếu', name_from: 'requester' },

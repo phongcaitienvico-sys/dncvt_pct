@@ -13,3 +13,5 @@ __pycache__/
 .env
 .clasp.json
 .clasprc.json
+.worktrees/
+.superpowers/

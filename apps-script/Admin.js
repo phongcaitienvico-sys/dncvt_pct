@@ -22,10 +22,40 @@ function cleanCatalogRow_(table, row) {
   return out;
 }
 
+// Mỗi mục danh mục phải có ít nhất một trong các trường này (mục trống làm hỏng danh sách chọn trên bảng vật tư)
+const CATALOG_REQUIRED = {
+  units: ['name'], uoms: ['name'], material_groups: ['name'], suppliers: ['code', 'name'],
+  project_items: ['item_code', 'item_name', 'project_code', 'project_name'],
+};
+// Trường không được trùng giữa các mục (so không phân biệt hoa/thường, khoảng trắng)
+const CATALOG_UNIQUE = { units: 'name', uoms: 'name', material_groups: 'name', suppliers: 'code', project_items: 'item_code' };
+const CATALOG_LABELS = {
+  name: 'Tên', code: 'Mã', item_code: 'Mã hạng mục', item_name: 'Tên hạng mục', project_code: 'Mã dự án', project_name: 'Tên dự án',
+};
+
+function catalogKey_(v) {
+  return String(v === null || v === undefined ? '' : v).trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+/** Kiểm tra mục danh mục sau khi sửa (`after`) TRƯỚC khi ghi: không trống, không trùng. */
+function checkCatalogRow_(table, after, before) {
+  const req = CATALOG_REQUIRED[table];
+  if (!req.some(function (f) { return after[f]; })) {
+    fail_('Chưa nhập ' + req.map(function (f) { return '"' + CATALOG_LABELS[f] + '"'; }).join(' hoặc ') + ' — mục trống không được lưu.');
+  }
+  const u = CATALOG_UNIQUE[table];
+  if (!after[u] || (before && catalogKey_(before[u]) === catalogKey_(after[u]))) return;
+  const dup = tableAll_(table).find(function (r) { return r.id !== after.id && catalogKey_(r[u]) === catalogKey_(after[u]); });
+  if (dup) fail_('"' + after[u] + '" đã có trong danh mục.', 'DUPLICATE');
+}
+
 function apiCatalogSave_(p, ctx) {
   const table = String(p.table || '');
   const patch = cleanCatalogRow_(table, p.row);
   if (p.row.id) {
+    const before = tableFind_(table, [Number(p.row.id)])[Number(p.row.id)];
+    if (!before) fail_('Không tìm thấy bản ghi', 'NOT_FOUND');
+    checkCatalogRow_(table, Object.assign({}, before, patch), before);
     const done = updateObjs_(table, [{ id: Number(p.row.id), patch: patch }]);
     if (!done.length) fail_('Không tìm thấy bản ghi', 'NOT_FOUND');
     Object.keys(patch).forEach(function (f) {
@@ -33,6 +63,7 @@ function apiCatalogSave_(p, ctx) {
     });
     return done[0].after;
   }
+  checkCatalogRow_(table, patch, null);
   const rec = tableInsert_(table, [patch])[0];
   audit_(ctx, table, rec.id, '(thêm)', '', JSON.stringify(patch));
   return rec;

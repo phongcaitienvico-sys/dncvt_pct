@@ -7,12 +7,12 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;600;700&display=swap&subset=vietnamese" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/tabulator-tables@6.3.1/dist/css/tabulator_simple.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="css/app.css?v=mvon3e4r">
+  <link rel="stylesheet" href="css/app.css?v=mvp1juk2">
   <script src="https://cdn.jsdelivr.net/npm/tabulator-tables@6.3.1/dist/js/tabulator.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script src="js/config.js?v=mvon3e4r"></script>
-  <script src="js/logic.js?v=mvon3e4r"></script>
-  <script src="js/app.js?v=mvon3e4r"></script>
+  <script src="js/config.js?v=mvp1juk2"></script>
+  <script src="js/logic.js?v=mvp1juk2"></script>
+  <script src="js/app.js?v=mvp1juk2"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js"></script>
   <style>
     .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 12px; flex-wrap: wrap; }
@@ -29,7 +29,7 @@
 </head>
 <body>
   <header id="topbar"></header>
-  <main x-data="adminPage()" x-init="init()">
+  <main x-data="adminPage()">
     <h1>Quản trị</h1>
     <div class="tabs">
       <button type="button" :class="tab === 'cat' && 'on'" @click="show('cat')">Danh mục</button>
@@ -142,15 +142,17 @@
     function adminPage() {
       let grid = null;
       const saveChains = {};
+      let touched = false; // đã sửa / thêm dòng → không vẽ lại bảng khi bản danh mục mới tải xong ở nền
       return {
         tab: 'cat', catTable: 'suppliers', users: [], audit: [], auditQ: '', busy: false, busyText: '',
 
         async init() {
-          await App.init({ admin: true });
+          await App.init({ admin: true }); // có bản lưu thì về ngay, bản mới tải ở nền (App.bootFresh)
           grid = new Tabulator('#cat-grid', { height: 'max(300px, calc(100vh - 260px))', layout: 'fitData', selectableRows: 'highlight', index: '_k', placeholder: 'Chưa có dữ liệu', columnDefaults: { variableHeight: true, resizable: true }, columns: [] });
-          grid.on('cellEdited', (cell) => this.saveCatalogRow(cell.getRow()));
+          grid.on('cellEdited', (cell) => { touched = true; this.saveCatalogRow(cell.getRow()); });
           await new Promise((r) => grid.on('tableBuilt', r));
           this.loadCatalog();
+          App.bootFresh.then(() => { if (!touched) this.loadCatalog(); });
         },
         show(t) {
           this.tab = t;
@@ -159,16 +161,25 @@
           if (t === 'cat') setTimeout(() => grid.redraw(true));
         },
 
-        async loadCatalog() {
-          const boot = await App.refreshBoot();
+        /** Vẽ danh mục từ bản đang có trong máy (không gọi máy chủ: mỗi lần tải danh mục mất vài giây). */
+        loadCatalog() {
+          const boot = App.boot;
           const cols = CATALOG_COLUMNS[this.catTable];
           grid.setColumns([
             { formatter: 'rowSelection', titleFormatter: 'rowSelection', hozAlign: 'center', headerSort: false, width: 36 },
           ].concat(cols.map(([field, title, width]) => ({ field, title, width, editor: 'input' }))));
-          grid.setData(boot.catalogs[this.catTable].map((r) => Object.assign(r, { _k: 'i' + r.id })));
+          grid.setData(boot.catalogs[this.catTable].map((r) => Object.assign({}, r, { _k: 'i' + r.id })));
         },
         addCatalogRow() {
+          touched = true;
           grid.addRow({ _k: 'n' + Date.now() }, true).then((row) => row.getCells()[1].edit());
+        },
+        /** Ghi kết quả lưu/xóa vào bản danh mục trong máy ngay (đổi tab danh mục không phải chờ tải lại), rồi làm mới ngầm. */
+        patchBoot(table, saved, removedIds) {
+          const list = App.boot.catalogs[table];
+          if (saved) { const i = list.findIndex((r) => r.id === saved.id); if (i >= 0) list[i] = saved; else list.push(saved); }
+          if (removedIds) App.boot.catalogs[table] = list.filter((r) => !removedIds.includes(r.id));
+          App.refreshBoot().catch(() => {});
         },
         saveCatalogRow(row) {
           // Lưu tuần tự theo từng dòng để dòng mới không bị tạo 2 lần khi sửa nhanh nhiều ô
@@ -178,10 +189,18 @@
             const d = row.getData();
             const payload = { id: d.id || undefined };
             CATALOG_COLUMNS[table].forEach(([f]) => { payload[f] = d[f] === undefined ? null : d[f]; });
+            // dòng mới còn trống hết (vừa bấm "+ Thêm" rồi bỏ đó): chưa lưu, tránh tạo mục trống trong danh mục
+            if (!d.id && CATALOG_COLUMNS[table].every(([f]) => !String(d[f] || '').trim())) return;
             try {
               const saved = await Api.call('catalog.save', { table, row: payload });
-              row.update({ id: saved.id }); App.refreshBoot().catch(() => {});
-            } catch (e) { App.toast(e.message, 'error'); }
+              row.update({ id: saved.id });
+              this.patchBoot(table, saved);
+            } catch (e) {
+              App.toast(e.message, 'error');
+              // dòng đã có: trả lại giá trị đang lưu trên máy chủ
+              const old = d.id && App.boot.catalogs[table].find((r) => r.id === d.id);
+              if (old) row.update(Object.assign({}, old));
+            }
           });
         },
         async deleteCatalogRows() {
@@ -190,7 +209,7 @@
           if (!confirm('Xóa ' + rows.length + ' mục khỏi danh mục? (Các dòng vật tư/phiếu đã dùng giá trị này không bị đổi.)')) return;
           const ids = rows.map((r) => r.getData().id).filter(Boolean);
           try {
-            if (ids.length) { await Api.call('catalog.delete', { table: this.catTable, ids }); App.refreshBoot().catch(() => {}); }
+            if (ids.length) { await Api.call('catalog.delete', { table: this.catTable, ids }); this.patchBoot(this.catTable, null, ids); }
             rows.forEach((r) => r.delete());
           } catch (e) { App.toast(e.message, 'error'); }
         },

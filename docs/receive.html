@@ -6,10 +6,10 @@
   <title>Nhận hàng · Đề nghị cấp vật tư</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;600;700&display=swap&subset=vietnamese" rel="stylesheet">
-  <link rel="stylesheet" href="css/app.css?v=mvon3e4r">
-  <script src="js/config.js?v=mvon3e4r"></script>
-  <script src="js/logic.js?v=mvon3e4r"></script>
-  <script src="js/app.js?v=mvon3e4r"></script>
+  <link rel="stylesheet" href="css/app.css?v=mvp1juk2">
+  <script src="js/config.js?v=mvp1juk2"></script>
+  <script src="js/logic.js?v=mvp1juk2"></script>
+  <script src="js/app.js?v=mvp1juk2"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js"></script>
   <style>
     .cards { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); }
@@ -36,7 +36,7 @@
 </head>
 <body>
   <header id="topbar"></header>
-  <main x-data="receivePage()" x-init="init()">
+  <main x-data="receivePage()">
     <h1>Nhận hàng</h1>
     <div class="filters">
       <input type="search" placeholder="Tìm tên vật tư, số phiếu, hạng mục…" x-model.debounce.250ms="q" style="flex:1; min-width:200px">

@@ -437,3 +437,18 @@ test('Quản trị gỡ dòng khỏi phiếu: dòng về "chưa có phiếu", gi
   const audit = b.call('audit.list', { q: 'gỡ khỏi phiếu' }, admin);
   assert.equal(audit.length, 1);
 });
+
+test('danh mục: không lưu mục trống, không trùng tên; sửa trường khác của mục cũ vẫn được', () => {
+  const { b, admin } = fresh();
+  assert.throws(() => b.call('catalog.save', { table: 'units', row: { name: '  ' } }, admin), /mục trống/);
+  assert.throws(() => b.call('catalog.save', { table: 'project_items', row: { owner: 'Nam' } }, admin), /mục trống/);
+  const u = b.call('catalog.save', { table: 'units', row: { name: 'Phòng Thử' } }, admin);
+  assert.throws(() => b.call('catalog.save', { table: 'units', row: { name: 'phòng  thử ' } }, admin), errCode('DUPLICATE'));
+  assert.throws(() => b.call('catalog.save', { table: 'units', row: { id: u.id, name: '' } }, admin), /mục trống/);
+  assert.equal(b.call('catalog.save', { table: 'units', row: { id: u.id, name: 'Phòng Thử' } }, admin).name, 'Phòng Thử');
+  const s1 = b.call('catalog.save', { table: 'suppliers', row: { code: 'NCC1', name: 'A' } }, admin);
+  assert.throws(() => b.call('catalog.save', { table: 'suppliers', row: { code: 'ncc1', name: 'B' } }, admin), errCode('DUPLICATE'));
+  assert.equal(b.call('catalog.save', { table: 'suppliers', row: { id: s1.id, code: 'NCC1', name: 'A mới' } }, admin).name, 'A mới');
+  const units = b.call('bootstrap', {}, admin).catalogs.units;
+  assert.ok(units.every((x) => x.name));
+});

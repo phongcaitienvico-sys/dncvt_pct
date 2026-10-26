@@ -122,16 +122,22 @@
         App.renderNav();
         return fresh;
       };
-      // Danh mục ít đổi: có bản lưu thì dùng ngay, làm mới ngầm (trang admin luôn chờ bản mới để kiểm tra quyền)
-      const cached = opts.admin ? null : await idb.get(bootKey);
+      const notAdmin = () => opts.admin && App.user.role !== 'admin';
+      const leave = () => { location.href = 'lines.html'; return new Promise(() => {}); };
+      // Danh mục ít đổi: có bản lưu thì dùng ngay, làm mới ngầm. App.bootFresh = lời hứa có bản mới nhất
+      // (trang cần dữ liệu mới thì chờ nó; trang admin kiểm tra lại quyền khi bản mới về — máy chủ vẫn tự chặn người không phải QT).
+      const cached = await idb.get(bootKey);
       if (cached) {
         cached.today = Logic.todayIso();
         App.boot = cached;
-        refresh().catch(() => { /* lỗi mạng: tiếp tục dùng bản lưu; hết phiên thì Api.call tự chuyển về đăng nhập */ });
+        App.bootFresh = refresh().then((fresh) => { if (notAdmin()) leave(); return fresh; })
+          .catch(() => App.boot); // lỗi mạng: tiếp tục dùng bản lưu; hết phiên thì Api.call tự chuyển về đăng nhập
+        if (notAdmin()) return leave();
         return App.boot;
       }
       await refresh();
-      if (opts.admin && App.user.role !== 'admin') { location.href = 'lines.html'; return new Promise(() => {}); }
+      App.bootFresh = Promise.resolve(App.boot);
+      if (notAdmin()) return leave();
       return App.boot;
     },
 

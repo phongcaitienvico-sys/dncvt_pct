@@ -93,7 +93,15 @@ function linesPage() {
     if (editStart !== null && t && (t === editStart || (labelOf && t === labelOf[editStart]))) return true;
     return Logic.fold(label).includes(t);
   };
-  const listEditor = (values, freetext, extra) => {
+  const listEditor = (raw, freetext, extra) => {
+    // Bỏ mục trống / trùng của danh mục: Tabulator gặp giá trị null thì lỗi và không hiện được danh sách
+    const seen = new Set();
+    const values = raw.filter((v) => {
+      const key = v && typeof v === 'object' ? v.value : v;
+      if (key === null || key === undefined || String(key).trim() === '' || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
     const labelOf = {};
     values.forEach((v) => { if (v && typeof v === 'object') labelOf[Logic.fold(v.value)] = Logic.fold(v.label); });
     return Object.assign({
@@ -118,7 +126,7 @@ function linesPage() {
   }, editable ? { editor: 'input', editable: canEdit, mutatorEdit: (v) => Logic.parseNum(v) } : {});
 
   function columns(cat) {
-    const projectValues = cat.project_items.map((p) => {
+    const projectValues = cat.project_items.filter((p) => p.item_code || p.project_code).map((p) => {
       const code = p.item_code || p.project_code;
       return { value: code, label: code + ' — ' + (p.item_name || p.project_name || '') };
     });
@@ -606,9 +614,9 @@ function linesPage() {
       });
       formProjects = projects;
       this.dl = {
-        units: cat.units.map((u) => u.name), projects: Array.from(projects.keys()), uoms: cat.uoms.map((u) => u.name),
+        units: cat.units.map((u) => u.name).filter(Boolean), projects: Array.from(projects.keys()), uoms: cat.uoms.map((u) => u.name).filter(Boolean),
         loc: h.delivery_location, req: h.requester, purpose: h.purpose, sup: h.supplier, name: h.name,
-        equip: h.equipment_name, groups: cat.material_groups.map((g) => ({ code: g.name, desc: g.description || '' })),
+        equip: h.equipment_name, groups: cat.material_groups.filter((g) => g.name).map((g) => ({ code: g.name, desc: g.description || '' })),
         codes: knownCodes(),
       };
       if (!this.fm.items.length) { this.fm.items = []; this.formAddRow(3); }

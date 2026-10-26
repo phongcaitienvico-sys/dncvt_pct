@@ -114,6 +114,12 @@ function makeJsonStore(file) {
     },
     append(name, rows) { tab(name).rows.push(...rows.map((r) => r.slice())); },
     writeRow(name, index, values) { tab(name).rows[index] = values.slice(); },
+    writeCol(name, field, values) {
+      const t = tab(name);
+      const c = t.headers.indexOf(field);
+      if (c < 0) return;
+      values.forEach((v, i) => { if (t.rows[i]) t.rows[i][c] = v === null || v === undefined ? '' : String(v); });
+    },
     deleteRows(name, indexes) {
       const t = tab(name);
       indexes.slice().sort((a, b) => b - a).forEach((i) => t.rows.splice(i, 1));

@@ -138,6 +138,32 @@
     return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase();
   };
 
+  /** Chuẩn hóa giá trị Nhóm VT (gõ chữ thường, chọn nhãn "C — Giải thích" hoặc dán tên giải thích) về đúng mã nhóm. */
+  L.normalizeMaterialGroup = function (raw, groups) {
+    if (raw === null || raw === undefined) return null;
+    const s = String(raw).trim();
+    if (!s) return null;
+    const cleanKey = (x) => L.fold(x).replace(/[^a-z0-9]+/g, ' ').trim();
+    const list = Array.isArray(groups) ? groups : [];
+    const wanted = cleanKey(s);
+    const prefix = cleanKey(s.split(/\s+[—\-]\s+/)[0]);
+    for (let i = 0; i < list.length; i++) {
+      const code = String(list[i].name || '').trim();
+      if (!code) continue;
+      const ck = cleanKey(code);
+      if (wanted === ck || prefix === ck) return code;
+    }
+    for (let i = 0; i < list.length; i++) {
+      const code = String(list[i].name || '').trim();
+      const parts = String(list[i].description || '').split(';');
+      for (let j = 0; j < parts.length; j++) {
+        const pk = cleanKey(parts[j]);
+        if (pk && wanted === pk) return code;
+      }
+    }
+    return s;
+  };
+
   if (typeof module !== 'undefined' && module.exports) module.exports = L;
   else root.Logic = L;
 })(this);

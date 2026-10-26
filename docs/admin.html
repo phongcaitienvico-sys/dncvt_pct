@@ -7,12 +7,12 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;600;700&display=swap&subset=vietnamese" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/tabulator-tables@6.3.1/dist/css/tabulator_simple.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="css/app.css?v=mvltfiou">
+  <link rel="stylesheet" href="css/app.css?v=mvon3e4r">
   <script src="https://cdn.jsdelivr.net/npm/tabulator-tables@6.3.1/dist/js/tabulator.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script src="js/config.js?v=mvltfiou"></script>
-  <script src="js/logic.js?v=mvltfiou"></script>
-  <script src="js/app.js?v=mvltfiou"></script>
+  <script src="js/config.js?v=mvon3e4r"></script>
+  <script src="js/logic.js?v=mvon3e4r"></script>
+  <script src="js/app.js?v=mvon3e4r"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js"></script>
   <style>
     .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 12px; flex-wrap: wrap; }
@@ -134,7 +134,7 @@
     const CATALOG_COLUMNS = {
       suppliers: [['code', 'Mã', 90], ['name', 'Tên nhà cung cấp', 220], ['address', 'Địa chỉ', 220], ['phone', 'Điện thoại', 110], ['email', 'Email', 160], ['tax_code', 'MST', 110], ['field', 'Lĩnh vực', 140]],
       project_items: [['project_code', 'Mã dự án', 100], ['project_name', 'Tên dự án', 200], ['item_code', 'Mã hạng mục', 110], ['item_name', 'Tên hạng mục', 220], ['owner', 'Phụ trách', 130], ['status', 'Trạng thái', 110]],
-      material_groups: [['name', 'Nhóm vật tư', 300]],
+      material_groups: [['name', 'Nhóm vật tư', 120], ['description', 'Giải thích', 560]],
       units: [['name', 'Đơn vị đề xuất', 300]],
       uoms: [['name', 'Đơn vị tính', 200]],
     };
@@ -147,7 +147,7 @@
 
         async init() {
           await App.init({ admin: true });
-          grid = new Tabulator('#cat-grid', { height: 'max(300px, calc(100vh - 260px))', layout: 'fitData', selectableRows: 'highlight', index: '_k', placeholder: 'Chưa có dữ liệu', columns: [] });
+          grid = new Tabulator('#cat-grid', { height: 'max(300px, calc(100vh - 260px))', layout: 'fitData', selectableRows: 'highlight', index: '_k', placeholder: 'Chưa có dữ liệu', columnDefaults: { variableHeight: true, resizable: true }, columns: [] });
           grid.on('cellEdited', (cell) => this.saveCatalogRow(cell.getRow()));
           await new Promise((r) => grid.on('tableBuilt', r));
           this.loadCatalog();
@@ -160,7 +160,7 @@
         },
 
         async loadCatalog() {
-          const boot = await Api.call('bootstrap');
+          const boot = await App.refreshBoot();
           const cols = CATALOG_COLUMNS[this.catTable];
           grid.setColumns([
             { formatter: 'rowSelection', titleFormatter: 'rowSelection', hozAlign: 'center', headerSort: false, width: 36 },
@@ -180,7 +180,7 @@
             CATALOG_COLUMNS[table].forEach(([f]) => { payload[f] = d[f] === undefined ? null : d[f]; });
             try {
               const saved = await Api.call('catalog.save', { table, row: payload });
-              row.update({ id: saved.id });
+              row.update({ id: saved.id }); App.refreshBoot().catch(() => {});
             } catch (e) { App.toast(e.message, 'error'); }
           });
         },
@@ -190,7 +190,7 @@
           if (!confirm('Xóa ' + rows.length + ' mục khỏi danh mục? (Các dòng vật tư/phiếu đã dùng giá trị này không bị đổi.)')) return;
           const ids = rows.map((r) => r.getData().id).filter(Boolean);
           try {
-            if (ids.length) await Api.call('catalog.delete', { table: this.catTable, ids });
+            if (ids.length) { await Api.call('catalog.delete', { table: this.catTable, ids }); App.refreshBoot().catch(() => {}); }
             rows.forEach((r) => r.delete());
           } catch (e) { App.toast(e.message, 'error'); }
         },

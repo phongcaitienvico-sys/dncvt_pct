@@ -115,7 +115,10 @@ function linesPage() {
       { field: '_status', title: 'Trạng thái', width: 122, sorter: (a, b, ra, rb) => ra.getData()._st.label.localeCompare(rb.getData()._st.label),
         formatter: (cell) => { const s = cell.getRow().getData()._st; return `<span class="st ${s.color}">${App.esc(s.label)}</span>`; } },
       { field: 'unit', title: 'Đơn vị đề xuất', width: 140, editor: 'list', editorParams: listEditor(cat.units.map((u) => u.name), true) },
-      { field: 'material_group', title: 'Nhóm VT', width: 120, editor: 'list', editorParams: listEditor(cat.material_groups.map((u) => u.name), true) },
+      { field: 'material_group', title: 'Nhóm VT', width: 95, editor: 'list',
+        editorParams: listEditor(cat.material_groups.map((g) => ({ value: g.name, label: g.description ? g.name + ' — ' + g.description : g.name })), true),
+        mutatorEdit: (v) => Logic.normalizeMaterialGroup(v, cat.material_groups),
+        tooltip: (e, cell) => { const v = cell.getValue(); const g = cat.material_groups.find((x) => x.name === v); return g && g.description ? v + ' — ' + g.description : (v || false); } },
       { field: 'name', title: 'Tên vật tư', width: 240, editor: 'list', editable: canEdit, editorParams: historyEditor('name', false) },
       { field: 'uom', title: 'ĐVT', width: 70, editor: 'list', editorParams: listEditor(cat.uoms.map((u) => u.name), true) },
       numCol('qty_requested', 'SL yêu cầu', 90, true),
@@ -341,7 +344,7 @@ function linesPage() {
         if (d.request_code && !isAdmin() && LOCKED_AFTER_ISSUE.includes(field)) { skipped++; return; }
         const v = raw.trim();
         changes[field] = NUM_FIELDS.includes(field) ? Logic.parseNum(v)
-          : DATE_FIELDS.includes(field) ? Logic.parseDate(v) : (v || null);
+          : DATE_FIELDS.includes(field) ? Logic.parseDate(v) : field === 'material_group' ? Logic.normalizeMaterialGroup(v, App.boot.catalogs.material_groups) : (v || null);
       });
       const fields = Object.keys(changes);
       if (!fields.length) return;
@@ -514,7 +517,7 @@ function linesPage() {
       this.dl = {
         units: cat.units.map((u) => u.name), projects: Array.from(projects.keys()), uoms: cat.uoms.map((u) => u.name),
         loc: h.delivery_location, req: h.requester, purpose: h.purpose, sup: h.supplier, name: h.name,
-        equip: h.equipment_name, groups: cat.material_groups.map((g) => g.name),
+        equip: h.equipment_name, groups: cat.material_groups.map((g) => ({ code: g.name, desc: g.description || '' })),
       };
       if (!this.fm.items.length) { this.fm.items = []; this.formAddRow(3); }
       this.fm.c = Object.assign({
@@ -569,7 +572,7 @@ function linesPage() {
         const price = Logic.parseNum(it.unit_price);
         const row = {
           name, uom: t(it.uom) || hit.uom || null, qty_requested: qty, qty_on_hand: Logic.parseNum(it.qty_on_hand), note: t(it.note),
-          material_group: t(it.material_group) || (c.material_group ? null : hit.material_group) || null,
+          material_group: Logic.normalizeMaterialGroup(t(it.material_group), App.boot.catalogs.material_groups) || (t(c.material_group) ? null : hit.material_group) || null,
           unit_price: price !== null ? price : (hit.unit_price || null),
           need_date: it.need_date || null, purpose: t(it.purpose), equipment_name: t(it.equipment_name), supplier: t(it.supplier),
         };
@@ -584,7 +587,7 @@ function linesPage() {
       const common = {
         unit: c.unit || null, project_code: proj.code, project_name: proj.name, delivery_location: c.delivery_location || null,
         requester: c.requester || null, request_date: c.request_date || null, need_date: c.need_date || null,
-        purpose: c.purpose || null, supplier: c.supplier || null, equipment_name: c.equipment_name || null, material_group: c.material_group || null,
+        purpose: c.purpose || null, supplier: c.supplier || null, equipment_name: c.equipment_name || null, material_group: Logic.normalizeMaterialGroup(c.material_group, App.boot.catalogs.material_groups),
       };
       if (issue && !confirm('Lưu ' + items.length + ' vật tư và cấp số phiếu mới?')) return;
       const win = issue ? App.openPrintWindow() : null;

@@ -354,6 +354,16 @@ function sheetStore_() {
       delete cache[name];
       sheet(name).getRange(index + 2, 1, 1, values.length).setNumberFormat('@').setValues([values.map(safe)]);
     },
+    /** Ghi đè 1 cột bằng một lệnh duy nhất (dùng khi chuẩn hóa hàng nghìn dòng lịch sử). */
+    writeCol: function (name, field, values) {
+      if (!values.length) return;
+      delete cache[name];
+      const sh = sheet(name);
+      const col = headersOf(sh).indexOf(field) + 1;
+      if (!col) return;
+      sh.getRange(2, col, values.length, 1).setNumberFormat('@')
+        .setValues(values.map(function (v) { return [safe(v === null || v === undefined ? '' : String(v))]; }));
+    },
     deleteRows: function (name, indexes) {
       delete cache[name];
       const sh = sheet(name);

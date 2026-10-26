@@ -9,9 +9,9 @@
   <link rel="stylesheet" href="css/app.css?v=20261023-layout2">
   <link rel="stylesheet" href="css/print.css?v=20261023-layout3">
   <script src="https://cdn.jsdelivr.net/npm/nunjucks@3.2.4/browser/nunjucks.min.js"></script>
-  <script src="js/config.js?v=mvltfiou"></script>
-  <script src="js/logic.js?v=mvltfiou"></script>
-  <script src="js/app.js?v=mvltfiou"></script>
+  <script src="js/config.js?v=mvon3e4r"></script>
+  <script src="js/logic.js?v=mvon3e4r"></script>
+  <script src="js/app.js?v=mvon3e4r"></script>
   <script src="js/print_mapping.js?v=20261023-layout3"></script>
 </head>
 <body class="print">
@@ -140,7 +140,7 @@
         }));
       };
       const withStt = (lines) => lines.map((l, i) => Object.assign({}, l, {
-        _stt: i + 1, amount: l.unit_price === null || l.unit_price === undefined ? null : Logic.amount(l),
+        _stt: i + 1, material_group: Logic.normalizeMaterialGroup(l.material_group, boot.catalogs.material_groups), amount: l.unit_price === null || l.unit_price === undefined ? null : Logic.amount(l),
       }));
 
       // Chuẩn bị dữ liệu cho từng mẫu

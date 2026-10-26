@@ -28,7 +28,7 @@ const SCHEMA = {
     ['id', 'int'], ['project_code', 'str'], ['project_name', 'str'], ['item_code', 'str'],
     ['item_name', 'str'], ['owner', 'str'], ['status', 'str'],
   ],
-  material_groups: [['id', 'int'], ['name', 'str']],
+  material_groups: [['id', 'int'], ['name', 'str'], ['description', 'str']],
   units: [['id', 'int'], ['name', 'str']],
   uoms: [['id', 'int'], ['name', 'str']],
   users: [

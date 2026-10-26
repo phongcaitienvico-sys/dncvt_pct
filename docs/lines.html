@@ -10,9 +10,9 @@
   <link rel="stylesheet" href="css/app.css?v=20261023-layout2">
   <script src="https://cdn.jsdelivr.net/npm/tabulator-tables@6.3.1/dist/js/tabulator.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script src="js/config.js?v=mvltfiou"></script>
-  <script src="js/logic.js?v=mvltfiou"></script>
-  <script src="js/app.js?v=mvltfiou"></script>
+  <script src="js/config.js?v=mvon3e4r"></script>
+  <script src="js/logic.js?v=mvon3e4r"></script>
+  <script src="js/app.js?v=mvon3e4r"></script>
   <script src="js/lines.js?v=20261023-layout2"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js"></script>
   <style>
@@ -153,7 +153,7 @@
     <datalist id="dl-purpose"><template x-for="u in dl.purpose" :key="u"><option :value="u"></option></template></datalist>
     <datalist id="dl-sup"><template x-for="u in dl.sup" :key="u"><option :value="u"></option></template></datalist>
     <datalist id="dl-equip"><template x-for="u in dl.equip" :key="u"><option :value="u"></option></template></datalist>
-    <datalist id="dl-group"><template x-for="u in dl.groups" :key="u"><option :value="u"></option></template></datalist>
+    <datalist id="dl-group"><template x-for="g in dl.groups" :key="g.code"><option :value="g.code" :label="g.desc"></option></template></datalist>
     <datalist id="dl-name"><template x-for="u in dl.name" :key="u"><option :value="u"></option></template></datalist>
     </div>
     <div id="grid"></div>

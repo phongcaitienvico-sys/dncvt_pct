@@ -1,4 +1,4 @@
-﻿const test = require('node:test');
+const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createBackend } = require('../dev/gas');
 
@@ -299,4 +299,82 @@ test('Quản trị xóa được dòng đã có số phiếu: giảm số dòng 
   assert.equal(b.call('requests.get', { codes: [code] }, user)[0].lines.length, 0);
   const [n] = addLines(b, user, 1);
   assert.equal(b.call('requests.issue', { line_ids: [n.id] }, user).code, 'YC2026-296');
+});
+
+test('danh mục nhóm vật tư: setup tạo mã C/E kèm giải thích và catalog.save lưu được cột description', () => {
+  const { b, admin } = fresh();
+  const groups = b.call('bootstrap', {}, admin).catalogs.material_groups;
+  assert.deepEqual(groups.map((g) => g.name), ['C', 'E']);
+  assert.match(groups[0].description, /Thiết bị, máy móc sản xuất/);
+  assert.match(groups[1].description, /Văn phòng phẩm/);
+
+  const added = b.call('catalog.save', {
+    table: 'material_groups',
+    row: { name: 'A', description: 'Nguyên vật liệu chính' },
+  }, admin);
+  assert.equal(added.name, 'A');
+  assert.equal(added.description, 'Nguyên vật liệu chính');
+
+  const updated = b.call('catalog.save', {
+    table: 'material_groups',
+    row: { id: added.id, name: 'A', description: 'Nguyên vật liệu sản xuất chính' },
+  }, admin);
+  assert.equal(updated.description, 'Nguyên vật liệu sản xuất chính');
+});
+
+test('setup chuẩn hóa bảng material_groups bị tách dòng và dữ liệu Nhóm VT lịch sử trong Sheet cũ', () => {
+  const b = createBackend(null);
+  b.setNow('2026-10-26T09:00:00+07:00');
+  // Giả lập Sheet đã import theo cấu trúc cũ (chưa có cột description, 9 dòng bị tách rời)
+  b.store.db.tabs.material_groups = {
+    headers: ['id', 'name'],
+    rows: [
+      ['1', 'C'],
+      ['2', 'Thiết bị, máy móc sản xuất, vật tư cải tạo, chế tạo.'],
+      ['3', 'Công cụ, dụng cụ, vật tư phục vụ sửa chữa.'],
+      ['4', 'Vật tư phục vụ thi công xây dựng.'],
+      ['5', 'E'],
+      ['6', 'Văn phòng phẩm'],
+      ['7', 'Bảo hộ lao động.'],
+      ['8', 'Đá mài, đá cắt'],
+      ['9', 'Các vật tư khác'],
+    ],
+  };
+  b.store.db.tabs.lines = {
+    headers: ['id', 'request_code', 'name', 'material_group', 'updated_at'],
+    rows: [
+      ['1', 'YC2020-001', 'Kẹp File còng A4', 'Văn phòng phẩm', '2020-08-27T00:00:00'],
+      ['2', 'YC2020-005', 'Thép tấm', 'VT chế tạo', '2020-09-01T00:00:00'],
+      ['3', 'YC2022-010', 'Ống thép', 'c', '2022-01-10T00:00:00'],
+      ['4', 'YC2026-100', 'Vật tư nhóm riêng', 'A', '2026-10-01T00:00:00'],
+    ],
+  };
+
+  const { adminPassword } = b.setup();
+  const admin = b.call('login', { username: 'admin', password: adminPassword }).token;
+  const groups = b.call('bootstrap', {}, admin).catalogs.material_groups;
+  assert.deepEqual(groups, [
+    {
+      id: 1,
+      name: 'C',
+      description: 'Thiết bị, máy móc sản xuất, vật tư cải tạo, chế tạo; Công cụ, dụng cụ, vật tư phục vụ sửa chữa; Vật tư phục vụ thi công xây dựng',
+    },
+    {
+      id: 5,
+      name: 'E',
+      description: 'Văn phòng phẩm; Bảo hộ lao động; Đá mài, đá cắt; Các vật tư khác',
+    },
+  ]);
+
+  const list = b.call('lines.list', {}, admin);
+  const mgIdx = list.columns.indexOf('material_group');
+  const upIdx = list.columns.indexOf('updated_at');
+  assert.deepEqual(list.rows.map((r) => r[mgIdx]), ['E', 'C', 'C', 'A']);
+  assert.equal(list.rows[0][upIdx], '2026-10-26T09:00:00');
+  assert.equal(list.rows[3][upIdx], '2026-10-01T00:00:00');
+
+  // Sau khi đã chuẩn hóa, quản trị thêm nhóm mới không có giải thích thì chạy lại setup() không được gộp nhầm
+  b.call('catalog.save', { table: 'material_groups', row: { name: 'Nhóm dự phòng' } }, admin);
+  b.setup();
+  assert.deepEqual(b.call('bootstrap', {}, admin).catalogs.material_groups.map((g) => g.name), ['C', 'E', 'Nhóm dự phòng']);
 });

@@ -174,3 +174,69 @@ def test_nguon_khong_bi_sua(sheet, tmp_path):
     before = hashlib.md5(sheet.read_bytes()).hexdigest()
     run(sheet, tmp_path)
     assert hashlib.md5(sheet.read_bytes()).hexdigest() == before
+
+
+def _make_group_wb(tmp_path, line_groups):
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "DATA base"
+    ws.append(HEADER)
+    for idx, grp in enumerate(line_groups, 1):
+        ws.append(row(**{
+            "Tên Vật tư": f"VT {idx}",
+            "Nhóm VT": grp,
+            "Số lượng yêu cầu": 1,
+            "Ngày yêu cầu": "20/12/2021",
+            "Ngày cần có": "23/12/2021",
+            "Số phiếu": "YC2021-001",
+            "Mã Hạng mục": None,
+        }))
+    g = wb.create_sheet("Nhóm VT")
+    g.append(["Nhóm vật tư", None])
+    g.append(["C", "Thiết bị, máy móc sản xuất, vật tư cải tạo, chế tạo."])
+    g.append([None, "Công cụ, dụng cụ, vật tư phục vụ sửa chữa."])
+    g.append([None, "Vật tư phục vụ thi công xây dựng."])
+    g.append(["E", "Văn phòng phẩm"])
+    g.append([None, "Bảo hộ lao động."])
+    path = tmp_path / "nhom_vt.xlsx"
+    wb.save(path)
+    return path
+
+
+def test_nhom_vt_gop_cot_giai_thich_o_gop(tmp_path):
+    path = _make_group_wb(tmp_path, ["C"])
+    result, out = run(path, tmp_path)
+    assert result.catalogs["material_groups"] == [
+        {
+            "id": 1,
+            "name": "C",
+            "description": "Thiết bị, máy móc sản xuất, vật tư cải tạo, chế tạo; Công cụ, dụng cụ, vật tư phục vụ sửa chữa; Vật tư phục vụ thi công xây dựng",
+        },
+        {
+            "id": 2,
+            "name": "E",
+            "description": "Văn phòng phẩm; Bảo hộ lao động",
+        },
+    ]
+    wb = openpyxl.load_workbook(out / "db_khoi_tao.xlsx")
+    assert [c.value for c in wb["material_groups"][1]] == ["id", "name", "description"]
+    assert [c.value for c in wb["material_groups"][2]] == [
+        "1",
+        "C",
+        "Thiết bị, máy móc sản xuất, vật tư cải tạo, chế tạo; Công cụ, dụng cụ, vật tư phục vụ sửa chữa; Vật tư phục vụ thi công xây dựng",
+    ]
+
+
+def test_chuan_hoa_nhom_vt_lich_su_ve_ma_nhom(tmp_path):
+    path = _make_group_wb(tmp_path, ["Văn phòng phẩm", "VT chế tạo", "c", "Nhóm lạ"])
+    result, _ = run(path, tmp_path)
+    by_name = {l["name"]: l["material_group"] for l in result.lines}
+    assert by_name == {
+        "VT 1": "E",
+        "VT 2": "C",
+        "VT 3": "C",
+        "VT 4": "Nhóm lạ",
+    }
+    group_errors = [e for e in result.errors if e["Lý do"] == "Không có trong danh mục Nhóm VT"]
+    assert len(group_errors) == 1
+    assert group_errors[0]["Giá trị"] == "Nhóm lạ"

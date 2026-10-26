@@ -61,3 +61,18 @@ test('tuần ISO, tháng, số còn thiếu, bỏ dấu', () => {
   assert.equal(L.qtyMissing({ qty_requested: 10, qty_received: 12 }), 0);
   assert.equal(L.fold('Thép Đen'), 'thep den');
 });
+
+test('normalizeMaterialGroup giữ mã nhóm chuẩn từ chữ thường, nhãn kèm giải thích hoặc tên giải thích', () => {
+  const groups = [
+    { name: 'C', description: 'Thiết bị, máy móc sản xuất, vật tư cải tạo, chế tạo; Công cụ, dụng cụ, vật tư phục vụ sửa chữa; Vật tư phục vụ thi công xây dựng' },
+    { name: 'E', description: 'Văn phòng phẩm; Bảo hộ lao động; Đá mài, đá cắt; Các vật tư khác' },
+  ];
+  assert.equal(L.normalizeMaterialGroup('C', groups), 'C');
+  assert.equal(L.normalizeMaterialGroup(' c ', groups), 'C');
+  assert.equal(L.normalizeMaterialGroup('E — Văn phòng phẩm; Bảo hộ lao động', groups), 'E');
+  assert.equal(L.normalizeMaterialGroup('Văn phòng phẩm', groups), 'E');
+  assert.equal(L.normalizeMaterialGroup('bảo hộ lao động.', groups), 'E');
+  assert.equal(L.normalizeMaterialGroup('A', groups), 'A');
+  assert.equal(L.normalizeMaterialGroup('   ', groups), null);
+  assert.equal(L.normalizeMaterialGroup(null, groups), null);
+});

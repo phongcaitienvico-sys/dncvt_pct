@@ -212,6 +212,18 @@ PROJECT_HEADERS = {
     "owner": ["phu trach", "nguoi phu trach", "chu tri", "pm"],
     "status": ["trang thai", "tinh trang"],
 }
+LEGACY_GROUP_ALIASES = {
+    "vt che tao": "C",
+    "bulong": "C",
+    "gcck": "C",
+    "vbi": "C",
+    "cat ton": "C",
+    "cong cu ca nhan": "C",
+    "thiet bi": "C",
+    "van phong pham": "E",
+    "vt van phong": "E",
+    "do gia dung": "E",
+}
 
 
 def find_sheet(wb, *names):
@@ -291,17 +303,25 @@ class Importer:
                     out.append(rec)
         return out
 
-    def read_simple_list(self, ws):
+    def read_material_groups(self, ws):
+        """Tab Nhóm VT: cột A là mã nhóm (C, E… có thể gộp ô nhiều dòng), cột B+ là giải thích."""
         if ws is None:
             return []
-        values, seen = [], set()
+        grouped: OrderedDict[str, list[str]] = OrderedDict()
+        current = None
         for r in read_rows(ws):
-            for v in r:  # tab Nhóm VT: cột A là mã (C, E…), cột B là mô tả → lấy cả hai
-                t = clean_text(v)
-                if t and fold(t) not in ("nhom vt", "nhom vat tu", "stt") and not re.fullmatch(r"\d+", t) and t not in seen:
-                    seen.add(t)
-                    values.append(t)
-        return values
+            code = clean_text(r[0]) if r else None
+            if code and fold(code) not in ("nhom vt", "nhom vat tu", "stt") and not re.fullmatch(r"\d+", code):
+                current = code
+                grouped.setdefault(current, [])
+            if current:
+                for v in r[1:]:
+                    desc = clean_text(v)
+                    if desc:
+                        part = desc.rstrip(".;").strip()
+                        if part and part not in grouped[current]:
+                            grouped[current].append(part)
+        return [{"name": k, "description": "; ".join(v) if v else None} for k, v in grouped.items()]
 
     # ---- chạy
     def run(self):
@@ -312,7 +332,7 @@ class Importer:
 
         suppliers = self.read_catalog(find_sheet(wb, "listnhacungcap", "list nha cung cap"), SUPPLIER_HEADERS, "name")
         projects = self.read_catalog(find_sheet(wb, "QL Ma DA/HM", "QL Ma DA HM", "QL Ma DAHM", "QL Mã DA/HM"), PROJECT_HEADERS, ("item_code", "project_code"))
-        groups = self.read_simple_list(find_sheet(wb, "Nhóm VT", "Nhom VT"))
+        groups = self.read_material_groups(find_sheet(wb, "Nhóm VT", "Nhom VT"))
 
         rows = read_rows(ws)
         hi, cols, unknown = detect_header(rows, DATA_HEADERS, "name")
@@ -328,7 +348,15 @@ class Importer:
         # Cột "Nhà cc/Người mua" là người/bộ phận mua (KHVT, Mr. Trường…), không phải mã NCC → không đối chiếu listnhacungcap
         self.notes.append('Cột "Nhà cc/Người mua" giữ nguyên, không đối chiếu với listnhacungcap (là người mua, không phải mã NCC).')
         project_keys = {fold(p.get("item_code") or p.get("project_code")) for p in projects if p.get("item_code") or p.get("project_code")}
-        group_keys = {fold(g) for g in groups}
+        code_by_fold = {fold(g["name"]): g["name"] for g in groups}
+        group_lookup = dict(code_by_fold)
+        for g in groups:
+            for seg in (g.get("description") or "").split(";"):
+                if fold(seg):
+                    group_lookup.setdefault(fold(seg), g["name"])
+        for alias, target in LEGACY_GROUP_ALIASES.items():
+            if fold(target) in code_by_fold:
+                group_lookup.setdefault(alias, code_by_fold[fold(target)])
 
         def cell(r, f):
             idx = cols.get(f)
@@ -386,8 +414,12 @@ class Importer:
                 self.err(i, col_name("name"), None, "Thiếu tên vật tư")
             if line["project_code"] and project_keys and fold(line["project_code"]) not in project_keys:
                 self.err(i, col_name("project_code"), line["project_code"], "Không có trong danh mục QL Ma DA/HM")
-            if line["material_group"] and group_keys and fold(line["material_group"]) not in group_keys:
-                self.err(i, col_name("material_group"), line["material_group"], "Không có trong danh mục Nhóm VT")
+            if line["material_group"]:
+                mapped_group = group_lookup.get(fold(line["material_group"]))
+                if mapped_group:
+                    line["material_group"] = mapped_group
+                elif group_lookup:
+                    self.err(i, col_name("material_group"), line["material_group"], "Không có trong danh mục Nhóm VT")
             if line["_received_date"] and line["_qty_received"] is None:
                 self.err(i, col_name("qty_received"), None, "Có Ngày nhận nhưng thiếu Số lượng thực nhận (không tạo lần nhận)")
             parsed.append(line)
@@ -486,10 +518,11 @@ class Importer:
                 if l[field]:
                     counts[fold(l[field])][l[field]] += 1
             return sorted((max(v.items(), key=lambda kv: kv[1])[0] for v in counts.values()), key=fold)
+        fallback_groups = [{"name": v, "description": None} for v in distinct("material_group")]
         self.catalogs = {
             "suppliers": [dict(id=i, **{k: s.get(k) for k in ("code", "name", "address", "phone", "email", "tax_code", "field")}) for i, s in enumerate(suppliers, 1)],
             "project_items": [dict(id=i, **{k: p.get(k) for k in ("project_code", "project_name", "item_code", "item_name", "owner", "status")}) for i, p in enumerate(projects, 1)],
-            "material_groups": named(groups or distinct("material_group")),
+            "material_groups": [{"id": i, "name": g["name"], "description": g.get("description")} for i, g in enumerate(groups or fallback_groups, 1)],
             "units": named(distinct("unit")),
             "uoms": named(distinct("uom")),
         }

@@ -89,6 +89,17 @@
 
     currentPage: () => location.pathname.split('/').pop() || 'index.html',
 
+    async refreshBoot() {
+      const fresh = await Api.call('bootstrap');
+      fresh.today = Logic.todayIso();
+      if (App.user) idb.set('boot:' + App.user.username, fresh);
+      if (App.user && fresh.user.role !== App.user.role) { Api.saveLogin({ token: Api.token(), user: fresh.user }); }
+      App.user = fresh.user;
+      App.boot = fresh;
+      App.renderNav();
+      return fresh;
+    },
+
     goLogin() {
       const next = App.currentPage() + location.search;
       location.href = 'index.html?next=' + encodeURIComponent(next);

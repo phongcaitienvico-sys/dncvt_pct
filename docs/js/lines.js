@@ -641,6 +641,8 @@ function linesPage() {
         append_code: '',
       }, this.fm.c.unit !== undefined ? this.fm.c : {});
       this.fm.lastCode = lastCode;
+      this.fm.prevNeed = this.fm.c.need_date || '';
+      this.formNeedDate();
       this.fm.error = '';
       this.fm.open = true;
       setTimeout(() => { const el = document.getElementById('fm-name-0'); if (el) el.focus(); }, 100);
@@ -651,7 +653,7 @@ function linesPage() {
       if (filled && !confirm('Đóng form? Các vật tư đang nhập chưa lưu sẽ giữ lại cho lần mở sau.')) return;
       this.fm.open = false;
     },
-    formAddRow(n) { for (let i = 0; i < n; i++) this.fm.items.push(newFormItem()); },
+    formAddRow(n) { for (let i = 0; i < n; i++) { const it = newFormItem(); it.need_date = this.fm.c.need_date || ''; this.fm.items.push(it); } },
     formRemove(i) { this.fm.items.splice(i, 1); if (!this.fm.items.length) this.formAddRow(1); },
     formEnter(i) {
       if (i === this.fm.items.length - 1) this.formAddRow(1);
@@ -662,6 +664,13 @@ function linesPage() {
       if (hit && !it.uom && hit.uom) it.uom = hit.uom;
     },
     formProject() { /* nhận diện lúc lưu */ },
+    /** Ngày cần có chung → điền xuống mọi dòng chưa có ngày riêng (hoặc đang mang ngày chung cũ), để nhìn thấy ngay. */
+    formNeedDate() {
+      const now = this.fm.c.need_date || '';
+      const prev = this.fm.prevNeed || '';
+      this.fm.items.forEach((it) => { if (!it.need_date || it.need_date === prev) it.need_date = now; });
+      this.fm.prevNeed = now;
+    },
     /** Chọn phiếu cũ để thêm vào: ô thông tin chung nào đang trống thì lấy theo dòng của phiếu đó. */
     formAppendCode() {
       const code = (this.fm.c.append_code || '').trim().toUpperCase();

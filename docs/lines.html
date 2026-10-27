@@ -7,14 +7,14 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;600;700&display=swap&subset=vietnamese" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/tabulator-tables@6.3.1/dist/css/tabulator_simple.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="css/app.css?v=mvqfuxk6">
+  <link rel="stylesheet" href="css/app.css?v=mvqg43k0">
   <script src="https://cdn.jsdelivr.net/npm/tabulator-tables@6.3.1/dist/js/tabulator.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script src="js/config.js?v=mvqfuxk6"></script>
-  <script src="js/logic.js?v=mvqfuxk6"></script>
-  <script src="js/vendor/supabase.min.js?v=mvqfuxk6"></script>
-  <script src="js/app.js?v=mvqfuxk6"></script>
-  <script src="js/lines.js?v=mvqfuxk6"></script>
+  <script src="js/config.js?v=mvqg43k0"></script>
+  <script src="js/logic.js?v=mvqg43k0"></script>
+  <script src="js/vendor/supabase.min.js?v=mvqg43k0"></script>
+  <script src="js/app.js?v=mvqg43k0"></script>
+  <script src="js/lines.js?v=mvqg43k0"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js"></script>
   <style>
     #grid { background: #fff; }
@@ -97,7 +97,7 @@
             <label>Địa điểm giao <input list="dl-loc" x-model="fm.c.delivery_location"></label>
             <label>Người yêu cầu <input list="dl-req" x-model="fm.c.requester"></label>
             <label>Ngày yêu cầu <input type="date" x-model="fm.c.request_date"></label>
-            <label>Ngày cần có <input type="date" x-model="fm.c.need_date"></label>
+            <label>Ngày cần có <input type="date" x-model="fm.c.need_date" @change="formNeedDate()" title="Tự điền xuống các dòng vật tư chưa có ngày riêng"></label>
             <label class="wide">Mục đích sử dụng <input list="dl-purpose" x-model="fm.c.purpose"></label>
             <label>Tên thiết bị <input list="dl-equip" x-model="fm.c.equipment_name"></label>
             <label>Nhóm VT <input list="dl-group" x-model="fm.c.material_group"></label>

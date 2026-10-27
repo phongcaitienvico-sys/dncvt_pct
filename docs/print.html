@@ -6,13 +6,13 @@
   <title>In phiếu</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:ital,wght@0,400;0,600;0,700;1,400&display=swap&subset=vietnamese" rel="stylesheet">
-  <link rel="stylesheet" href="css/app.css?v=mvqfuxk6">
+  <link rel="stylesheet" href="css/app.css?v=mvqg43k0">
   <link rel="stylesheet" href="css/print.css?v=20261023-layout3">
   <script src="https://cdn.jsdelivr.net/npm/nunjucks@3.2.4/browser/nunjucks.min.js"></script>
-  <script src="js/config.js?v=mvqfuxk6"></script>
-  <script src="js/logic.js?v=mvqfuxk6"></script>
-  <script src="js/vendor/supabase.min.js?v=mvqfuxk6"></script>
-  <script src="js/app.js?v=mvqfuxk6"></script>
+  <script src="js/config.js?v=mvqg43k0"></script>
+  <script src="js/logic.js?v=mvqg43k0"></script>
+  <script src="js/vendor/supabase.min.js?v=mvqg43k0"></script>
+  <script src="js/app.js?v=mvqg43k0"></script>
   <script src="js/print_mapping.js?v=20261023-layout3"></script>
 </head>
 <body class="print">
@@ -62,7 +62,7 @@
       };
       const paperSel = document.getElementById('paper');
       const sel = document.getElementById('rpp');
-      const paperKey = 'ncvt_paper_' + tpl;
+      const paperKey = 'ncvt_paper2_' + tpl; // đổi tên khóa để mọi máy về mặc định A4 ngang, sau đó vẫn nhớ lựa chọn
       paperSel.value = PAPERS[store.get(paperKey)] ? store.get(paperKey) : 'a4l';
       const rppKey = () => 'ncvt_rpp_' + tpl + '_' + paperSel.value;
       const fillRpp = () => {

@@ -255,15 +255,15 @@ function makeFakeSupabase(overrides = {}) {
   };
 }
 
-test('config.js giữ tương thích ngược mặc định BACKEND_MODE = gas và cầu dao Rollback', () => {
+test('config.js kích hoạt BACKEND_MODE = supabase và giữ nguyên API_URL làm cầu dao Rollback', () => {
   const { sandbox } = createBrowserEnv({ hostname: 'localhost' });
-  assert.equal(sandbox.APP_CONFIG.BACKEND_MODE, 'gas');
+  assert.equal(sandbox.APP_CONFIG.BACKEND_MODE, 'supabase');
   assert.equal(sandbox.APP_CONFIG.SUPABASE_URL, 'https://unbrchhbfughabmkorxt.supabase.co');
   assert.match(sandbox.APP_CONFIG.SUPABASE_ANON_KEY, /^eyJ/);
   assert.equal(sandbox.APP_CONFIG.API_URL, '/api');
 
   const prod = createBrowserEnv({ hostname: 'example.github.io' });
-  assert.equal(prod.sandbox.APP_CONFIG.BACKEND_MODE, 'gas');
+  assert.equal(prod.sandbox.APP_CONFIG.BACKEND_MODE, 'supabase');
   assert.match(prod.sandbox.APP_CONFIG.API_URL, /^https:\/\/script\.google\.com\/macros\/s\/.+\/exec$/);
 });
 

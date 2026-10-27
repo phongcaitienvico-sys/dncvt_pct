@@ -12,10 +12,9 @@ jobs:
   ping:
     name: Ping Supabase healthcheck
     runs-on: ubuntu-latest
-    if: ${{ vars.SUPABASE_URL != '' && vars.SUPABASE_ANON_KEY != '' }}
     env:
-      SUPABASE_URL: ${{ vars.SUPABASE_URL }}
-      SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
+      SUPABASE_URL: ${{ vars.SUPABASE_URL || 'https://unbrchhbfughabmkorxt.supabase.co' }}
+      SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVuYnJjaGhiZnVnaGFibWtvcnh0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTMwNDU4NDUsImV4cCI6MjEwODYyMTg0NX0.RfnJ-prGJOgkbZdxzypTBpSpbknUK8tu6-WXWTF1Pbo' }}
     steps:
       - name: Call PostgREST rpc/healthcheck
         run: |

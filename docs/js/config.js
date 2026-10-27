@@ -2,7 +2,7 @@
 // Khi chạy dev server trên máy (localhost) sẽ tự dùng /api giả lập.
 window.APP_CONFIG = {
   // 'gas' (Apps Script / dev server hiện tại) hoặc 'supabase' (khi đã điền SUPABASE_URL & SUPABASE_ANON_KEY)
-  BACKEND_MODE: 'gas',
+  BACKEND_MODE: 'supabase',
   SUPABASE_URL: 'https://unbrchhbfughabmkorxt.supabase.co',
   SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVuYnJjaGhiZnVnaGFibWtvcnh0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTMwNDU4NDUsImV4cCI6MjEwODYyMTg0NX0.RfnJ-prGJOgkbZdxzypTBpSpbknUK8tu6-WXWTF1Pbo',
   API_URL: /^(localhost|127\.0\.0\.1)$/.test(location.hostname)

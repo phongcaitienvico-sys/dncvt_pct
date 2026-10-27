@@ -38,7 +38,7 @@ python scripts/import_sheet.py samples/QL_De_nghi_cap_vat_tu.xlsx
 
 | Màn hình | Việc chính |
 |---|---|
-| **Bảng vật tư** | Nhấp ô để sửa, tự lưu. Enter xuống dòng (ở dòng cuối sẽ thêm dòng mới). Ctrl+V dán nhiều dòng từ Excel. Tick dòng → **Xuất phiếu PDF**. Dòng đã có phiếu chỉ Quản trị sửa được tên và số lượng, mọi sửa đều ghi nhật ký. **Quên vật tư sau khi xuất phiếu:** tick dòng mới + 1 dòng của phiếu cũ rồi bấm Xuất phiếu (hoặc *Thêm vào phiếu đã xuất…*, hoặc ô "Thêm vào phiếu đã xuất" trong form) → giữ nguyên số phiếu. Quản trị có *Gỡ khỏi phiếu*. |
+| **Bảng vật tư** | Nhấp ô để sửa, tự lưu; hoặc tick 1 dòng → **Sửa dòng (form)** để sửa đủ các trường. Enter xuống dòng (ở dòng cuối sẽ thêm dòng mới). Ctrl+V dán nhiều dòng từ Excel. Tick dòng → **Xuất phiếu PDF**. Dòng đã có phiếu chỉ Quản trị sửa được tên và số lượng, mọi sửa đều ghi nhật ký. **Quên vật tư sau khi xuất phiếu:** tick dòng mới + 1 dòng của phiếu cũ rồi bấm Xuất phiếu (hoặc *Thêm vào phiếu đã xuất…*, hoặc ô "Thêm vào phiếu đã xuất" trong form) → giữ nguyên số phiếu. Quản trị có *Gỡ khỏi phiếu*. |
 | **Nhận hàng** | Dùng được trên điện thoại. Nhập SL + ngày nhận, nhận nhiều đợt. Nhập nhầm thì tự xóa lần nhận của mình trong ngày rồi nhận lại. |
 | **Theo hạng mục** | Tổng tiền, % đã nhận, xuất Excel. |
 | **Phiếu đã xuất** | Mở/in lại phiếu; chọn nhiều phiếu → 1 file PDF; Đơn đặt hàng theo NCC; Phiếu bàn giao. |

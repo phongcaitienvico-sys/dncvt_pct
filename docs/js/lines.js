@@ -619,7 +619,8 @@ function linesPage() {
     dl: { units: [], projects: [], uoms: [], loc: [], req: [], purpose: [], sup: [], name: [], equip: [], groups: [], codes: [] },
     isAdmin: false,
 
-    openForm() {
+    /** Danh sách gợi ý dùng chung cho form thêm và form sửa. */
+    fillLists() {
       const cat = App.boot.catalogs;
       const h = history().lists;
       const projects = new Map();
@@ -635,6 +636,9 @@ function linesPage() {
         equip: h.equipment_name, groups: cat.material_groups.filter((g) => g.name).map((g) => ({ code: g.name, desc: g.description || '' })),
         codes: knownCodes(),
       };
+    },
+    openForm() {
+      this.fillLists();
       if (!this.fm.items.length) { this.fm.items = []; this.formAddRow(3); }
       this.fm.c = Object.assign({
         unit: '', project: '', delivery_location: '', requester: App.user.full_name, request_date: today, need_date: '', purpose: '', supplier: '', equipment_name: '', material_group: '',
@@ -646,6 +650,52 @@ function linesPage() {
       this.fm.error = '';
       this.fm.open = true;
       setTimeout(() => { const el = document.getElementById('fm-name-0'); if (el) el.focus(); }, 100);
+    },
+    // ---------- Form sửa một dòng ----------
+    ef: { open: false, key: null, error: '', locked: false, code: '', d: {} },
+
+    /** Tick đúng 1 dòng rồi bấm "Sửa dòng": mở form đầy đủ các trường của dòng đó. */
+    openEdit() {
+      const rows = table.getSelectedRows();
+      if (rows.length !== 1) { App.toast(rows.length ? 'Chỉ chọn 1 dòng để sửa bằng form (sửa nhiều dòng: nhấp thẳng vào ô).' : 'Hãy tick chọn 1 dòng cần sửa.', 'error'); return; }
+      const r = rows[0].getData();
+      this.fillLists();
+      const d = {};
+      EDITABLE_FIELDS.forEach((f) => { d[f] = r[f] === null || r[f] === undefined ? '' : r[f]; });
+      d.project = [r.project_code, r.project_name].filter(Boolean).join(' — ');
+      this.ef = { open: true, key: r._key, error: '', locked: !!r.request_code && !isAdmin(), code: r.request_code || '', id: r.id, d };
+      setTimeout(() => { const el = document.getElementById('ef-name'); if (el) el.focus(); }, 100);
+    },
+    saveEdit() {
+      const e = this.ef;
+      const row = table.getRow(e.key);
+      if (!row) { e.error = 'Không tìm thấy dòng (có thể đã bị xóa).'; return; }
+      const cur = row.getData();
+      const t = (v) => (v === null || v === undefined ? '' : String(v)).trim() || null;
+      const next = {
+        unit: t(e.d.unit), material_group: Logic.normalizeMaterialGroup(t(e.d.material_group), App.boot.catalogs.material_groups) || t(e.d.material_group),
+        name: t(e.d.name), uom: t(e.d.uom), qty_requested: Logic.parseNum(e.d.qty_requested), qty_on_hand: Logic.parseNum(e.d.qty_on_hand),
+        need_date: e.d.need_date || null, purpose: t(e.d.purpose), equipment_name: t(e.d.equipment_name), delivery_location: t(e.d.delivery_location),
+        requester: t(e.d.requester), request_date: e.d.request_date || null, supplier: t(e.d.supplier), unit_price: Logic.parseNum(e.d.unit_price), note: t(e.d.note),
+      };
+      const pj = formProjectOf(e.d.project);
+      next.project_code = pj.code; next.project_name = pj.name;
+      if (!next.name) { e.error = 'Thiếu tên vật tư.'; return; }
+      if (!(next.qty_requested > 0)) { e.error = 'Số lượng yêu cầu phải lớn hơn 0.'; return; }
+      const same = (a, b) => (a === null || a === undefined || a === '' ? null : a) === (b === null || b === undefined || b === '' ? null : b);
+      const changes = {};
+      Object.keys(next).forEach((f) => {
+        if (e.locked && LOCKED_AFTER_ISSUE.includes(f)) return; // dòng đã có phiếu: người thường không đổi được tên/số lượng
+        if (!same(next[f], cur[f])) changes[f] = next[f];
+      });
+      const fields = Object.keys(changes);
+      if (!fields.length) { e.open = false; App.toast('Không có thay đổi.', 'ok'); return; }
+      safeUpdate(row, Object.assign(changes, derive(Object.assign({}, cur, changes))));
+      markDirty(row, fields);
+      historyCache = null;
+      updateInfo();
+      e.open = false;
+      App.toast('Đã sửa ' + fields.length + ' trường, đang lưu…', 'ok');
     },
     closeForm() {
       if (this.fm.busy) return;

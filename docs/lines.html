@@ -7,14 +7,14 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;600;700&display=swap&subset=vietnamese" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/tabulator-tables@6.3.1/dist/css/tabulator_simple.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="css/app.css?v=mvqg43k0">
+  <link rel="stylesheet" href="css/app.css?v=mvqgfkog">
   <script src="https://cdn.jsdelivr.net/npm/tabulator-tables@6.3.1/dist/js/tabulator.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script src="js/config.js?v=mvqg43k0"></script>
-  <script src="js/logic.js?v=mvqg43k0"></script>
-  <script src="js/vendor/supabase.min.js?v=mvqg43k0"></script>
-  <script src="js/app.js?v=mvqg43k0"></script>
-  <script src="js/lines.js?v=mvqg43k0"></script>
+  <script src="js/config.js?v=mvqgfkog"></script>
+  <script src="js/logic.js?v=mvqgfkog"></script>
+  <script src="js/vendor/supabase.min.js?v=mvqgfkog"></script>
+  <script src="js/app.js?v=mvqgfkog"></script>
+  <script src="js/lines.js?v=mvqgfkog"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js"></script>
   <style>
     #grid { background: #fff; }
@@ -32,6 +32,7 @@
       <button type="button" @click="appendPrompt()" title="Quên vật tư sau khi xuất phiếu: tick các dòng mới (chưa có phiếu) rồi thêm vào phiếu đã xuất, giữ nguyên số phiếu">Thêm vào phiếu đã xuất…</button>
       <button type="button" x-show="isAdmin" x-cloak @click="detach()" title="Quản trị: đưa dòng đã chọn ra khỏi phiếu (dòng trở lại chưa có phiếu, không xóa dữ liệu)">Gỡ khỏi phiếu</button>
       <button type="button" class="primary" style="background:#157f3b;border-color:#157f3b" @click="openForm()" title="Nhập nhiều vật tư một lần, có thể lưu kèm xuất phiếu">+ Thêm vật tư (form)</button>
+      <button type="button" @click="openEdit()" title="Tick 1 dòng rồi bấm để sửa bằng form (hoặc nhấp thẳng vào ô trên bảng)">Sửa dòng (form)</button>
       <button type="button" @click="addRow()">+ Thêm dòng</button>
       <button type="button" @click="duplicate()">Nhân bản dòng</button>
       <button type="button" class="danger" @click="remove()">Xóa dòng</button>
@@ -156,6 +157,42 @@
           <button type="button" class="primary" x-show="fm.c.append_code" @click="formSubmit(true)" :disabled="fm.busy" title="Lưu rồi thêm vào phiếu đã xuất (giữ số) và mở phiếu để in lại"
             x-text="'Lưu & thêm vào phiếu ' + fm.c.append_code"></button>
         </div>
+      </div>
+    </div>
+    <!-- Form sửa một dòng -->
+    <div class="modal-back" x-show="ef.open" x-cloak @keydown.escape.window="ef.open = false">
+      <div class="modal" role="dialog" aria-modal="true" aria-label="Sửa vật tư" style="width:min(900px,100%)">
+        <div class="modal-head">
+          <b>Sửa vật tư <span class="muted small" x-text="'#' + (ef.id || '') + (ef.code ? ' · phiếu ' + ef.code : '')"></span></b>
+          <button type="button" class="link" @click="ef.open = false">Đóng</button>
+        </div>
+        <form class="modal-body" @submit.prevent="saveEdit()">
+          <div class="small" x-show="ef.locked" style="color:var(--warn);font-weight:600;margin-bottom:6px">Dòng đã có số phiếu: chỉ Quản trị sửa được Tên vật tư và Số lượng yêu cầu.</div>
+          <div class="fgrid">
+            <label class="wide">Tên vật tư * <input id="ef-name" list="dl-name" x-model="ef.d.name" :disabled="ef.locked" required></label>
+            <label>ĐVT <input list="dl-uom" x-model="ef.d.uom"></label>
+            <label>Nhóm VT <input list="dl-group" x-model="ef.d.material_group"></label>
+            <label>SL yêu cầu * <input x-model="ef.d.qty_requested" inputmode="decimal" :disabled="ef.locked" required></label>
+            <label>SL tồn kho <input x-model="ef.d.qty_on_hand" inputmode="decimal"></label>
+            <label>Ngày cần có <input type="date" x-model="ef.d.need_date"></label>
+            <label>Đơn giá <input x-model="ef.d.unit_price" inputmode="decimal"></label>
+            <label>Đơn vị đề xuất <input list="dl-unit" x-model="ef.d.unit"></label>
+            <label class="wide">Hạng mục (mã — tên) <input list="dl-project" x-model="ef.d.project"></label>
+            <label>Địa điểm giao <input list="dl-loc" x-model="ef.d.delivery_location"></label>
+            <label class="wide">Mục đích sử dụng <input list="dl-purpose" x-model="ef.d.purpose"></label>
+            <label>Tên thiết bị <input list="dl-equip" x-model="ef.d.equipment_name"></label>
+            <label>Người yêu cầu <input list="dl-req" x-model="ef.d.requester"></label>
+            <label>Ngày yêu cầu <input type="date" x-model="ef.d.request_date"></label>
+            <label>NCC / Người cấp <input list="dl-sup" x-model="ef.d.supplier"></label>
+            <label class="wide">Ghi chú <input x-model="ef.d.note"></label>
+          </div>
+          <div class="error-text" x-text="ef.error"></div>
+          <div class="modal-foot" style="padding:10px 0 0">
+            <span class="spacer"></span>
+            <button type="button" @click="ef.open = false">Hủy</button>
+            <button type="submit" class="primary">Lưu thay đổi</button>
+          </div>
+        </form>
       </div>
     </div>
     <datalist id="dl-unit"><template x-for="u in dl.units" :key="u"><option :value="u"></option></template></datalist>

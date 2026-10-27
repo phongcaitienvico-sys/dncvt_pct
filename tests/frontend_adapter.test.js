@@ -258,8 +258,8 @@ function makeFakeSupabase(overrides = {}) {
 test('config.js giữ tương thích ngược mặc định BACKEND_MODE = gas và cầu dao Rollback', () => {
   const { sandbox } = createBrowserEnv({ hostname: 'localhost' });
   assert.equal(sandbox.APP_CONFIG.BACKEND_MODE, 'gas');
-  assert.equal(sandbox.APP_CONFIG.SUPABASE_URL, '');
-  assert.equal(sandbox.APP_CONFIG.SUPABASE_ANON_KEY, '');
+  assert.equal(sandbox.APP_CONFIG.SUPABASE_URL, 'https://unbrchhbfughabmkorxt.supabase.co');
+  assert.match(sandbox.APP_CONFIG.SUPABASE_ANON_KEY, /^eyJ/);
   assert.equal(sandbox.APP_CONFIG.API_URL, '/api');
 
   const prod = createBrowserEnv({ hostname: 'example.github.io' });

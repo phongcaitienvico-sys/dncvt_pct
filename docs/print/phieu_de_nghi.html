@@ -21,6 +21,11 @@
   .pdn .date-line { text-align: right; font-weight: 700; font-style: italic; margin: 2mm 6mm 1mm 0; font-size: var(--fs); }
   .pdn .signs { font-size: var(--fs); margin-top: 2mm; }
   .pdn .signs .n { margin-top: var(--sign-gap); }
+  /* "PHIẾU" và "ĐỀ NGHỊ CẤP VẬT TƯ" chung một khối, không kẻ ngang giữa 2 dòng */
+  .pdn table.top td.t1 { border-bottom: none; padding-bottom: 0; }
+  .pdn table.top td.t.big { border-top: none; padding-top: 0; }
+  .pdn .blank-no { display: inline-block; width: 22mm; }      /* Số: ______/2026 — ghi số tay */
+  .pdn .blank-date { display: inline-block; width: 58mm; }    /* Ninh Bình, ______ — ghi ngày tay */
 </style>
 {% for d in docs %}
   {% for page in d.pages %}
@@ -34,8 +39,8 @@
 {{ m.unit_label }} {{ d.header.unit }}</td>
         </tr>
         <tr>
-          <td class="t">{{ m.title_lines[0] }}</td>
-          <td class="meta">Số: <b>{{ d.request.code }}</b></td>
+          <td class="t t1">{{ m.title_lines[0] }}</td>
+          <td class="meta">Số: {% if d.no_blank %}<span class="blank-no"></span>/{{ d.year }}{% else %}<b>{{ d.request.code }}</b>{% endif %}</td>
         </tr>
         <tr>
           <td class="t big">{{ m.title_lines[1] }}</td>
@@ -43,7 +48,7 @@
         </tr>
       </table>
     {% else %}
-      <div class="cont"><span>{{ m.title_lines | join(' ') }} (tiếp theo)</span><span>Số: {{ d.request.code }}</span></div>
+      <div class="cont"><span>{{ m.title_lines | join(' ') }} (tiếp theo)</span><span>Số: {% if d.no_blank %}<span class="blank-no"></span>/{{ d.year }}{% else %}{{ d.request.code }}{% endif %}</span></div>
     {% endif %}
 
     <table class="items">
@@ -61,7 +66,7 @@
     </table>
 
     {% if loop.last %}
-      <div class="date-line">{{ d.date_line }}</div>
+      <div class="date-line">{{ d.date_line }}{% if d.date_blank %}<span class="blank-date"></span>{% endif %}</div>
       <div class="signs" style="grid-template-columns: repeat({{ d.signatures.length }}, 1fr)">
         {% for s in d.signatures %}
           <div><div class="t">{{ s.title }}</div><div class="n">{{ s.name }}</div></div>

@@ -6,13 +6,13 @@
   <title>In phiếu</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:ital,wght@0,400;0,600;0,700;1,400&display=swap&subset=vietnamese" rel="stylesheet">
-  <link rel="stylesheet" href="css/app.css?v=mvq4jybf">
+  <link rel="stylesheet" href="css/app.css?v=mvqfuxk6">
   <link rel="stylesheet" href="css/print.css?v=20261023-layout3">
   <script src="https://cdn.jsdelivr.net/npm/nunjucks@3.2.4/browser/nunjucks.min.js"></script>
-  <script src="js/config.js?v=mvq4jybf"></script>
-  <script src="js/logic.js?v=mvq4jybf"></script>
-  <script src="js/vendor/supabase.min.js?v=mvq4jybf"></script>
-  <script src="js/app.js?v=mvq4jybf"></script>
+  <script src="js/config.js?v=mvqfuxk6"></script>
+  <script src="js/logic.js?v=mvqfuxk6"></script>
+  <script src="js/vendor/supabase.min.js?v=mvqfuxk6"></script>
+  <script src="js/app.js?v=mvqfuxk6"></script>
   <script src="js/print_mapping.js?v=20261023-layout3"></script>
 </head>
 <body class="print">
@@ -51,10 +51,10 @@
 
       // Khổ giấy: mặc định A5 ngang; số dòng mỗi trang gợi ý theo khổ (nhớ lựa chọn trên máy này)
       const PAPERS = {
-        a5l: { size: 'A5 landscape', w: '210mm', h: '148mm', pad: '6mm 7mm 8mm 7mm', fs: '9pt', gap: '9mm', logo: '10mm', cp: '0.7mm', rows: 5 },
-        a4l: { size: 'A4 landscape', w: '297mm', h: '210mm', pad: '8mm 10mm 10mm 10mm', fs: '10pt', gap: '14mm', logo: '14mm', cp: '1mm', rows: 10 },
-        a4p: { size: 'A4 portrait', w: '210mm', h: '297mm', pad: '10mm 10mm 12mm 12mm', fs: '11pt', gap: '20mm', logo: '20mm', cp: '1.5mm', rows: 15 },
-        a5p: { size: 'A5 portrait', w: '148mm', h: '210mm', pad: '7mm 7mm 9mm 7mm', fs: '9pt', gap: '12mm', logo: '12mm', cp: '1mm', rows: 7 },
+        a5l: { size: 'A5 landscape', w: '210mm', h: '148mm', pad: '6mm 7mm 8mm 7mm', fs: '9pt', gap: '14mm', logo: '10mm', cp: '0.7mm', rows: 5 },
+        a4l: { size: 'A4 landscape', w: '297mm', h: '210mm', pad: '8mm 10mm 10mm 10mm', fs: '10pt', gap: '22mm', logo: '14mm', cp: '1mm', rows: 10 },
+        a4p: { size: 'A4 portrait', w: '210mm', h: '297mm', pad: '10mm 10mm 12mm 12mm', fs: '11pt', gap: '30mm', logo: '20mm', cp: '1.5mm', rows: 15 },
+        a5p: { size: 'A5 portrait', w: '148mm', h: '210mm', pad: '7mm 7mm 9mm 7mm', fs: '9pt', gap: '18mm', logo: '12mm', cp: '1mm', rows: 7 },
       };
       const store = {
         get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
@@ -173,7 +173,10 @@
             header.project = [header.project_code, header.project_name].filter(Boolean).join(' — ');
             return {
               request: x.request, header, pages: chunk(withStt(x.lines), n, m.min_rows),
-              date_line: dateLine(header.request_date), signatures: signaturesFor(header.unit, header.requester),
+              date_line: m.date_line_blank ? (M.company.place ? M.company.place + ',' : '') : dateLine(header.request_date),
+              date_blank: !!m.date_line_blank, no_blank: !!m.number_blank,
+              year: x.request.year || String(header.request_date || x.request.issued_at || '').slice(0, 4),
+              signatures: signaturesFor(header.unit, header.requester),
             };
           });
         },

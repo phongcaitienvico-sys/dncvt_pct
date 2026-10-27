@@ -34,6 +34,8 @@ window.PRINT_MAPPING = {
     title_lines: ['PHIẾU', 'ĐỀ NGHỊ CẤP VẬT TƯ'],
     form_code: 'Mã hiệu: BM.KHVT.04.01',
     unit_label: 'Đơn vị đề nghị:',
+    number_blank: true,           // true: "Số: ______/2026" (ghi số tay, mã YC vẫn in ở chân trang); false: "Số: YC2026-301"
+    date_line_blank: true,        // true: "Ninh Bình, ______" (ghi ngày tay); false: in đủ "Ninh Bình, ngày … tháng … năm …"
     rows_per_page: 5,             // A5 ngang; trang in gợi ý số dòng theo khổ giấy
     min_rows: 0,                  // thêm dòng trống cho đủ số này ở trang cuối (0 = không thêm)
     // Tổng 100%; ưu tiên tên vật tư, hạng mục và mục đích, giữ đủ 14 cột Form1.

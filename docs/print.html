@@ -6,13 +6,13 @@
   <title>In phiếu</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:ital,wght@0,400;0,600;0,700;1,400&display=swap&subset=vietnamese" rel="stylesheet">
-  <link rel="stylesheet" href="css/app.css?v=mvqgfkog">
+  <link rel="stylesheet" href="css/app.css?v=mvrtbs34">
   <link rel="stylesheet" href="css/print.css?v=20261023-layout3">
   <script src="https://cdn.jsdelivr.net/npm/nunjucks@3.2.4/browser/nunjucks.min.js"></script>
-  <script src="js/config.js?v=mvqgfkog"></script>
-  <script src="js/logic.js?v=mvqgfkog"></script>
-  <script src="js/vendor/supabase.min.js?v=mvqgfkog"></script>
-  <script src="js/app.js?v=mvqgfkog"></script>
+  <script src="js/config.js?v=mvrtbs34"></script>
+  <script src="js/logic.js?v=mvrtbs34"></script>
+  <script src="js/vendor/supabase.min.js?v=mvrtbs34"></script>
+  <script src="js/app.js?v=mvrtbs34"></script>
   <script src="js/print_mapping.js?v=20261023-layout3"></script>
 </head>
 <body class="print">
@@ -135,7 +135,7 @@
       // Tên gọi tắt → họ tên đầy đủ (name_aliases); nhiều người cách nhau dấu ; thì đổi từng người
       const aliasMap = {};
       Object.keys(M.name_aliases || {}).forEach((k) => { aliasMap[Logic.fold(k)] = M.name_aliases[k]; });
-      const fullName = (v) => String(v || '').split(/\s*;\s*/).filter(Boolean).map((n) => aliasMap[Logic.fold(n)] || n).join('; ');
+      const fullName = (v) => String(v || '').split(/\s*;\s*/).filter(Boolean).map((n) => aliasMap[Logic.fold(n)] || n).filter((n, i, arr) => arr.findIndex((x) => Logic.fold(x) === Logic.fold(n)) === i).join('; '); // bỏ tên trùng (vd. "Hiếu" + "Nguyễn Văn Hiếu")
       // Người ký sửa trong Quản trị → Danh mục → Người ký phiếu đề nghị; chưa có danh mục đó thì dùng bộ trong print_mapping.js
       const signerSets = (() => {
         const rows = (boot.catalogs.signers || []).filter((r) => r.title);

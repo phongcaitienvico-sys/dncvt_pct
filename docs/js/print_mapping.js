@@ -112,4 +112,32 @@ window.PRINT_MAPPING = {
     ],
     signatures: [{ title: 'Người giao' }, { title: 'Người nhận' }],
   },
+
+  // ---------- Giấy đề nghị thanh toán — theo tab "giay de nghi thanh toan" của Sheet QL_De_nghi_thanh_toan ----------
+  // Dữ liệu lấy bằng payreq.get (source: 'payreq'), không dùng requests.get như phiếu vật tư.
+  // Cột dòng: stt, content, pay_date, amount, orderer, requester, supplier, driver_phone, plate_no, receive_time, receive_place, note.
+  giay_de_nghi_thanh_toan: {
+    source: 'payreq',
+    default_paper: 'a4p',          // A4 dọc
+    rows_per_page: 15,
+    min_rows: 0,
+    company_lines: ['CÔNG TY TNHH', 'THẮNG LỢI'],
+    nation_lines: ['CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM', 'Độc lập - Tự do - Hạnh phúc'],
+    title: 'GIẤY ĐỀ NGHỊ THANH TOÁN',
+    recipient: 'Kính gửi: Ban giám đốc Công ty TNHH Thắng Lợi',
+    intro: 'Xin đề nghị thanh toán cụ thể như sau:',
+    attach_label: 'Kèm theo (chứng từ gốc)',
+    date_line_blank: true,         // true: "Ninh Bình, ngày …… tháng …… năm ……" (ghi tay, như Sheet); false: in ngày xuất giấy
+    columns: [
+      { label: 'STT', field: 'stt', width: '9%', align: 'center' },
+      { label: 'Nội dung', field: 'content', width: '57%' },
+      { label: 'Ngày', field: 'pay_date', format: 'date', width: '15%', align: 'center' },
+      { label: 'Số tiền', field: 'amount', format: 'money', width: '19%', align: 'right' },
+    ],
+    // name_from: 'requester' → in tên Người đề nghị đứng tên trên giấy
+    signatures: [
+      { title: 'GIÁM ĐỐC DUYỆT', name: '' },
+      { title: 'NGƯỜI ĐỀ NGHỊ', name_from: 'requester' },
+    ],
+  },
 };

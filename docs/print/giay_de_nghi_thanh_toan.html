@@ -1,0 +1,83 @@
+{#
+  GIẤY ĐỀ NGHỊ THANH TOÁN — theo tab "giay de nghi thanh toan" của Sheet QL_De_nghi_thanh_toan.
+  Biến có sẵn: docs (mỗi phần tử: request {code, issued_at, ...}, header {requester, position, unit},
+  pages = [[dòng]], total, words (số tiền bằng chữ), date_line, signatures),
+  m (= PRINT_MAPPING.giay_de_nghi_thanh_toan), company, val(obj, field, format), cell(line, column), fmt(v, format).
+#}
+<style>
+  .gdntt { font-family: 'Times New Roman', Times, serif; font-size: calc(var(--fs) + 1.5pt); line-height: 1.35; }
+  .gdntt .hdr { display: grid; grid-template-columns: 38% 62%; text-align: center; font-weight: 700; }
+  .gdntt .hdr .sub { font-weight: 400; }
+  .gdntt h1 { text-align: center; font-size: calc(var(--fs) + 6pt); margin: 7mm 0 1mm; letter-spacing: .3px; }
+  .gdntt .no { text-align: center; margin-bottom: 5mm; }
+  .gdntt .to { font-weight: 700; margin-bottom: 3mm; }
+  .gdntt .info { display: grid; grid-template-columns: 34mm 1fr; row-gap: 1.5mm; margin-bottom: 3mm; }
+  .gdntt .info b { font-weight: 700; }
+  .gdntt .intro { margin-bottom: 2mm; }
+  .gdntt .items { font-size: calc(var(--fs) + 1pt); }
+  .gdntt .items th { background: #fff; font-size: calc(var(--fs) + 1pt); font-weight: 400; }
+  .gdntt .items td { vertical-align: middle; padding: 1.2mm 1.5mm; }
+  .gdntt .items tfoot td { border: none; padding-top: 1.5mm; }
+  .gdntt .items tfoot .sum { font-weight: 700; }
+  .gdntt .words { display: grid; grid-template-columns: auto 1fr; gap: 3mm; margin-top: 3mm; }
+  .gdntt .words span:last-child { font-style: italic; text-align: right; }
+  .gdntt .attach { margin-top: 2mm; }
+  .gdntt .date-line { text-align: right; font-style: italic; margin: 5mm 6mm 1mm 0; }
+  .gdntt .signs { margin-top: 2mm; }
+  .gdntt .signs .t { font-weight: 700; }
+  .gdntt .cont { display: flex; justify-content: space-between; font-weight: 700; margin-bottom: 3mm; }
+</style>
+{% for d in docs %}
+  {% for page in d.pages %}
+  <section class="sheet gdntt">
+    {% if loop.first %}
+      <div class="hdr">
+        <div>{{ m.company_lines[0] }}<br>{{ m.company_lines[1] }}</div>
+        <div>{{ m.nation_lines[0] }}<br>{{ m.nation_lines[1] }}<br><span class="sub">------***------</span></div>
+      </div>
+      <h1>{{ m.title }}</h1>
+      <div class="no">Số: <b>{{ d.request.code }}</b></div>
+      <div class="to">{{ m.recipient }}</div>
+      <div class="info">
+        <span>Tên tôi là:</span><b>{{ d.header.requester }}</b>
+        <span>Chức vụ:</span><b>{{ d.header.position }}</b>
+        <span>Đ.vị công tác:</span><b>{{ d.header.unit }}</b>
+      </div>
+      <div class="intro">{{ m.intro }}</div>
+    {% else %}
+      <div class="cont"><span>{{ m.title }} (tiếp theo)</span><span>Số: {{ d.request.code }}</span></div>
+    {% endif %}
+
+    <table class="items">
+      <colgroup>{% for c in m.columns %}<col style="{% if c.width %}width:{{ c.width }}{% endif %}">{% endfor %}</colgroup>
+      <thead><tr>{% for c in m.columns %}<th>{{ c.label }}</th>{% endfor %}</tr></thead>
+      <tbody>
+        {% for l in page %}
+        <tr>{% for c in m.columns %}<td class="{{ c.align }}">{{ cell(l, c) if c.field else '' }}</td>{% endfor %}</tr>
+        {% endfor %}
+      </tbody>
+      {% if loop.last %}
+      <tfoot>
+        <tr>
+          <td colspan="{{ m.columns.length - 2 }}"></td>
+          <td class="center">Tổng cộng:</td>
+          <td class="right sum">{{ fmt(d.total, 'money') }}</td>
+        </tr>
+      </tfoot>
+      {% endif %}
+    </table>
+
+    {% if loop.last %}
+      <div class="words"><span>Số tiền viết bằng chữ:</span><span>{{ d.words }}</span></div>
+      <div class="attach">{{ m.attach_label }}</div>
+      <div class="date-line">{{ d.date_line }}</div>
+      <div class="signs" style="grid-template-columns: repeat({{ d.signatures.length }}, 1fr)">
+        {% for s in d.signatures %}
+          <div><div class="t">{{ s.title }}</div><div class="n">{{ s.name }}</div></div>
+        {% endfor %}
+      </div>
+    {% endif %}
+    <div class="pageno">{{ d.request.code }} · Trang {{ loop.index }}/{{ loop.length }}</div>
+  </section>
+  {% endfor %}
+{% endfor %}

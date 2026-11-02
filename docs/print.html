@@ -6,14 +6,14 @@
   <title>In phiếu</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:ital,wght@0,400;0,600;0,700;1,400&display=swap&subset=vietnamese" rel="stylesheet">
-  <link rel="stylesheet" href="css/app.css?v=mvrtbs34">
+  <link rel="stylesheet" href="css/app.css?v=mvz1fy3n">
   <link rel="stylesheet" href="css/print.css?v=20261023-layout3">
   <script src="https://cdn.jsdelivr.net/npm/nunjucks@3.2.4/browser/nunjucks.min.js"></script>
-  <script src="js/config.js?v=mvrtbs34"></script>
-  <script src="js/logic.js?v=mvrtbs34"></script>
-  <script src="js/vendor/supabase.min.js?v=mvrtbs34"></script>
-  <script src="js/app.js?v=mvrtbs34"></script>
-  <script src="js/print_mapping.js?v=20261023-layout3"></script>
+  <script src="js/config.js?v=mvz1fy3n"></script>
+  <script src="js/logic.js?v=mvz1fy3n"></script>
+  <script src="js/vendor/supabase.min.js?v=mvz1fy3n"></script>
+  <script src="js/app.js?v=mvz1fy3n"></script>
+  <script src="js/print_mapping.js?v=20261102-payments"></script>
 </head>
 <body class="print">
   <div class="print-toolbar">
@@ -63,7 +63,8 @@
       const paperSel = document.getElementById('paper');
       const sel = document.getElementById('rpp');
       const paperKey = 'ncvt_paper2_' + tpl; // đổi tên khóa để mọi máy về mặc định A4 ngang, sau đó vẫn nhớ lựa chọn
-      paperSel.value = PAPERS[store.get(paperKey)] ? store.get(paperKey) : 'a4l';
+      paperSel.value = PAPERS[store.get(paperKey)] ? store.get(paperKey) : (PAPERS[m.default_paper] ? m.default_paper : 'a4l');
+      if (m.source === 'payreq') { const back = document.querySelector('.print-toolbar a'); back.href = 'payments.html'; back.textContent = '← Đề nghị thanh toán'; }
       const rppKey = () => 'ncvt_rpp_' + tpl + '_' + paperSel.value;
       const fillRpp = () => {
         const def = PAPERS[paperSel.value].rows;
@@ -90,7 +91,8 @@
         boot = await App.init();
         // chờ danh mục mới nhất (song song với tải phiếu) để tên người ký đúng như vừa sửa trong Quản trị
         [data, src, boot] = await Promise.all([
-          Api.call('requests.get', { codes }),
+          // Giấy đề nghị thanh toán (source: 'payreq') lấy dữ liệu riêng; phiếu vật tư giữ nguyên requests.get
+          Api.call(m.source === 'payreq' ? 'payreq.get' : 'requests.get', { codes }),
           fetch('print/' + tpl + '.html', { cache: 'no-cache' }).then((r) => { if (!r.ok) throw new Error('Không tải được mẫu ' + tpl); return r.text(); }),
           App.bootFresh,
         ]);
@@ -207,6 +209,22 @@
           });
           return [{ pages: chunk(rows, n, m.min_rows), date_line: dateLine(boot.today) }];
         },
+        giay_de_nghi_thanh_toan(n) {
+          return data.map((x) => {
+            const header = Object.assign({}, x.header || x.header_json || {});
+            const lines = (x.lines || []).map((l, i) => Object.assign({}, l, { _stt: i + 1 }));
+            const sum = lines.reduce((s, l) => s + (Number(l.amount) || 0), 0);
+            const total = lines.length ? sum : (Number(x.total) || 0);
+            return {
+              request: x, header, total, words: Logic.numToVietnameseWords(total),
+              pages: chunk(lines, n, m.min_rows),
+              date_line: m.date_line_blank ? dateLine(null) : dateLine(String(x.issued_at || '').slice(0, 10)),
+              signatures: (m.signatures || []).map((s) => Object.assign({}, s, {
+                name: s.name_from === 'requester' ? fullName(header.requester) : (s.name || ''),
+              })),
+            };
+          });
+        },
       };
 
       const env = new nunjucks.Environment(null, { autoescape: true });
@@ -288,7 +306,7 @@
       sel.addEventListener('change', () => { store.set(rppKey(), sel.value); render().catch(renderError); });
       paperSel.addEventListener('change', () => { store.set(paperKey, paperSel.value); fillRpp(); applyPaper(); render().catch(renderError); });
       document.getElementById('btn-print').addEventListener('click', () => window.print());
-      document.title = (tpl === 'phieu_de_nghi' ? '' : tpl + ' ') + codes.join('_');
+      document.title = (tpl === 'phieu_de_nghi' || m.source === 'payreq' ? '' : tpl + ' ') + codes.join('_');
       try { await render(); } catch (e) { renderError(e); }
     })();
   </script>

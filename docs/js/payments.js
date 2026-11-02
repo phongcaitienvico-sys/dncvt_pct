@@ -301,7 +301,8 @@ function paymentsPage() {
   }
 
   function checkIssuable(data) {
-    const bad = data.filter((d) => !String(d.content || '').trim() || !(Number(d.amount) > 0));
+    // Số tiền 0 vẫn hợp lệ (máy chủ chấp nhận); chỉ chặn khi để trống
+    const bad = data.filter((d) => !String(d.content || '').trim() || d.amount === null || d.amount === undefined || d.amount === '' || !(Number(d.amount) >= 0));
     if (bad.length) App.toast(bad.length + ' dòng thiếu Nội dung hoặc Số tiền.', 'error');
     return !bad.length;
   }
@@ -334,6 +335,7 @@ function paymentsPage() {
     } catch (e) {
       if (win) win.close();
       App.toast(e.message, 'error');
+      if (e.code === 'ALREADY_ISSUED') ui.reload(); // máy khác vừa xuất các dòng này: tải lại cho đúng số phiếu
     }
   }
 
@@ -588,6 +590,7 @@ function paymentsPage() {
       } catch (e) {
         if (win) win.close();
         g.error = e.message;
+        if (e.code === 'ALREADY_ISSUED') { g.open = false; App.toast(e.message, 'error'); this.reload(); }
       }
       g.busy = false;
     },

@@ -7,13 +7,13 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;600;700&display=swap&subset=vietnamese" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/tabulator-tables@6.3.1/dist/css/tabulator_simple.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="css/app.css?v=mvrtbs34">
+  <link rel="stylesheet" href="css/app.css?v=mvz1fy3n">
   <script src="https://cdn.jsdelivr.net/npm/tabulator-tables@6.3.1/dist/js/tabulator.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script src="js/config.js?v=mvrtbs34"></script>
-  <script src="js/logic.js?v=mvrtbs34"></script>
-  <script src="js/vendor/supabase.min.js?v=mvrtbs34"></script>
-  <script src="js/app.js?v=mvrtbs34"></script>
+  <script src="js/config.js?v=mvz1fy3n"></script>
+  <script src="js/logic.js?v=mvz1fy3n"></script>
+  <script src="js/vendor/supabase.min.js?v=mvz1fy3n"></script>
+  <script src="js/app.js?v=mvz1fy3n"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js"></script>
   <style>
     .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 12px; flex-wrap: wrap; }
@@ -49,6 +49,7 @@
           <option value="units">Đơn vị đề xuất</option>
           <option value="uoms">Đơn vị tính</option>
           <option value="signers">Người ký phiếu đề nghị</option>
+          <option value="payers">Người đề nghị thanh toán</option>
         </select>
         <button type="button" @click="addCatalogRow()">+ Thêm</button>
         <button type="button" class="danger" @click="deleteCatalogRows()">Xóa dòng đã chọn</button>
@@ -61,6 +62,11 @@
         vd. <code>Cải tiến</code> → P.Cải tiến, P.Cải tiến C. Để <b>trống</b> = bộ mặc định cho mọi đơn vị còn lại.
         <b>Họ tên</b> để trống = lấy "Người yêu cầu" của phiếu (dùng cho Người lập phiếu).
         Đổi tên ở đây thì in lại phiếu cũ cũng ra tên mới.
+      </div>
+      <div class="panel small" x-show="catTable === 'payers'" style="margin-bottom:8px">
+        Danh sách người đứng tên <b>Giấy đề nghị thanh toán</b>. Chọn người ở cột "Người đề nghị" thì Chức vụ và Đơn vị tự điền lên giấy.
+        Giấy đã xuất giữ nguyên Họ tên / Chức vụ / Đơn vị như lúc xuất.
+        <span x-show="!isSupabase()" style="color:var(--warn);font-weight:600">Tính năng Đề nghị thanh toán chỉ hỗ trợ bản Supabase.</span>
       </div>
       <div id="cat-grid" x-ignore></div>
     </section>
@@ -169,6 +175,7 @@
       units: [['name', 'Đơn vị đề xuất', 300]],
       uoms: [['name', 'Đơn vị tính', 200]],
       signers: [['unit_contains', 'Áp dụng khi đơn vị chứa (trống = mặc định)', 230], ['position', 'Thứ tự', 80], ['title', 'Chức danh', 200], ['name', 'Họ tên (trống = Người yêu cầu)', 240]],
+      payers: [['name', 'Họ tên', 220], ['position', 'Chức vụ', 180], ['unit', 'Đơn vị', 220]],
     };
 
     function adminPage() {
@@ -198,6 +205,8 @@
         /** Vẽ danh mục từ bản đang có trong máy (không gọi máy chủ: mỗi lần tải danh mục mất vài giây). */
         loadCatalog() {
           const boot = App.boot;
+          // danh mục Người đề nghị thanh toán có thể nằm ở boot.catalogs.payers hoặc boot.payers (bản cũ chưa có thì rỗng)
+          if (!boot.catalogs[this.catTable]) boot.catalogs[this.catTable] = (this.catTable === 'payers' && boot.payers) || [];
           const cols = CATALOG_COLUMNS[this.catTable];
           grid.setColumns([
             { formatter: 'rowSelection', titleFormatter: 'rowSelection', hozAlign: 'center', headerSort: false, width: 36 },
@@ -225,7 +234,7 @@
         },
         /** Ghi kết quả lưu/xóa vào bản danh mục trong máy ngay (đổi tab danh mục không phải chờ tải lại), rồi làm mới ngầm. */
         patchBoot(table, saved, removedIds) {
-          const list = App.boot.catalogs[table];
+          const list = App.boot.catalogs[table] || (App.boot.catalogs[table] = []);
           if (saved) { const i = list.findIndex((r) => r.id === saved.id); if (i >= 0) list[i] = saved; else list.push(saved); }
           if (removedIds) App.boot.catalogs[table] = list.filter((r) => !removedIds.includes(r.id));
           if (table === this.catTable) this.catCount = App.boot.catalogs[table].length;

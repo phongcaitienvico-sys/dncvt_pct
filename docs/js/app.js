@@ -30,7 +30,20 @@
     'audit.list': 'rpc_audit_list',
     'export.all': 'rpc_export_all',
     'backup.run': 'rpc_backup_run',
+    // Đề nghị thanh toán (chỉ có ở bản Supabase)
+    'payments.list': 'rpc_payments_list',
+    'payments.create': 'rpc_payments_create',
+    'payments.save': 'rpc_payments_save',
+    'payments.delete': 'rpc_payments_delete',
+    'payreq.issue': 'rpc_payreq_issue',
+    'payreq.append': 'rpc_payreq_append',
+    'payreq.detach': 'rpc_payreq_detach',
+    'payreq.list': 'rpc_payreq_list',
+    'payreq.get': 'rpc_payreq_get',
+    'payreq.setPaid': 'rpc_payreq_set_paid',
   };
+  const SUPABASE_ONLY = /^(payments|payreq)\./;
+  const SUPABASE_ONLY_MSG = 'Tính năng Đề nghị thanh toán chỉ hỗ trợ bản Supabase';
 
   const storage = {
     get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
@@ -295,6 +308,7 @@
 
     async call(action, params) {
       if (isSupabaseMode()) return callSupabase(action, params);
+      if (SUPABASE_ONLY.test(action)) throw Object.assign(new Error(SUPABASE_ONLY_MSG), { code: 'UNSUPPORTED' });
       let res;
       try {
         res = await fetch(window.APP_CONFIG.API_URL, {
@@ -326,6 +340,7 @@
     ['receive.html', 'Nhận hàng'],
     ['project.html', 'Theo hạng mục'],
     ['requests.html', 'Phiếu đã xuất'],
+    ['payments.html', 'Đề nghị thanh toán'],
     ['admin.html', 'Quản trị', true],
   ];
 
@@ -336,6 +351,8 @@
     esc,
     user: null,
     boot: null,
+    isSupabaseMode,
+    SUPABASE_ONLY_MSG,
 
     currentPage: () => location.pathname.split('/').pop() || 'index.html',
 

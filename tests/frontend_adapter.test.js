@@ -879,3 +879,38 @@ test('[BLOCKER #3] auth.changePassword tự động lưu token + session mới t
   assert.equal(gasEnv.sandbox.Api.token(), 'gas-session-tok');
   assert.equal(gasEnv.sandbox.Api.user().username, 'nam');
 });
+
+test('Đề nghị thanh toán: 10 action payments/payreq đi đúng RPC ở Supabase, báo lỗi thân thiện ở chế độ gas', async () => {
+  const fake = makeFakeSupabase();
+  const { sandbox, fetchCalls } = createBrowserEnv({
+    supabase: fake.supabaseGlobal,
+    appConfig: { BACKEND_MODE: 'supabase', SUPABASE_URL: 'https://demo.supabase.co', SUPABASE_ANON_KEY: 'anon-key' },
+  });
+  await sandbox.Api.saveLogin({ token: 'jwt', refresh_token: 'rt', user: { username: 'nam', role: 'user' } });
+  const map = [
+    ['payments.list', 'rpc_payments_list'], ['payments.create', 'rpc_payments_create'],
+    ['payments.save', 'rpc_payments_save'], ['payments.delete', 'rpc_payments_delete'],
+    ['payreq.issue', 'rpc_payreq_issue'], ['payreq.append', 'rpc_payreq_append'],
+    ['payreq.detach', 'rpc_payreq_detach'], ['payreq.list', 'rpc_payreq_list'],
+    ['payreq.get', 'rpc_payreq_get'], ['payreq.setPaid', 'rpc_payreq_set_paid'],
+  ];
+  for (const [action, rpcName] of map) {
+    const out = await sandbox.Api.call(action, { check: action });
+    assert.equal(out.rpcOk, rpcName);
+    assert.deepEqual(fromVm(out.echoed), { check: action });
+  }
+
+  sandbox.APP_CONFIG.BACKEND_MODE = 'gas';
+  const before = fetchCalls.length;
+  await assert.rejects(() => sandbox.Api.call('payments.list', {}), (e) => {
+    assert.equal(e.message, 'Tính năng Đề nghị thanh toán chỉ hỗ trợ bản Supabase');
+    assert.equal(e.code, 'UNSUPPORTED');
+    return true;
+  });
+  await assert.rejects(() => sandbox.Api.call('payreq.get', { codes: ['DN2026-016'] }), /chỉ hỗ trợ bản Supabase/);
+  assert.equal(fetchCalls.length, before, 'Không được gửi yêu cầu Đề nghị thanh toán tới Apps Script');
+
+  const html = fs.readFileSync(path.join(DOCS, 'payments.html'), 'utf8');
+  assert.ok(html.indexOf('js/vendor/supabase.min.js') > 0 && html.indexOf('js/app.js') > html.indexOf('js/vendor/supabase.min.js'));
+  assert.match(html, /js\/payments\.js\?v=[\w]+/);
+});

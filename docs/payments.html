@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Đề nghị thanh toán · Đề nghị cấp vật tư</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;600;700&display=swap&subset=vietnamese" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/tabulator-tables@6.3.1/dist/css/tabulator_simple.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="css/app.css?v=mvz1fy3n">
+  <script src="https://cdn.jsdelivr.net/npm/tabulator-tables@6.3.1/dist/js/tabulator.min.js"></script>
+  <script src="js/config.js?v=mvz1fy3n"></script>
+  <script src="js/logic.js?v=mvz1fy3n"></script>
+  <script src="js/vendor/supabase.min.js?v=mvz1fy3n"></script>
+  <script src="js/app.js?v=mvz1fy3n"></script>
+  <script src="js/payments.js?v=mvz1fy3n"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js"></script>
+  <style>
+    #pay-grid, #req-grid { background: #fff; }
+    .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 10px; flex-wrap: wrap; }
+    .tabs button { border: none; border-bottom: 3px solid transparent; border-radius: 0; background: none; padding: 8px 14px; }
+    .tabs button.on { border-bottom-color: var(--primary); font-weight: 600; color: var(--primary); }
+    .unsaved { color: var(--warn); font-weight: 600; }
+    .colmenu { position: relative; }
+    .colmenu .pop { position: absolute; top: 100%; left: 0; z-index: 50; background: var(--panel); border: 1px solid var(--line);
+      border-radius: var(--radius); padding: 8px 12px; box-shadow: 0 4px 14px rgba(0,0,0,.15); display: grid; gap: 6px; min-width: 190px; }
+    .unsupported { padding: 16px; border: 1px solid var(--warn); border-radius: var(--radius); background: #fff8e6; color: #6b4d00; font-weight: 600; }
+    .tabulator .tabulator-footer .tabulator-calcs-holder .tabulator-cell { font-weight: 700; }
+  </style>
+</head>
+<body>
+  <header id="topbar"></header>
+  <main>
+    <div x-data="paymentsPage()">
+      <div class="tabs">
+        <button type="button" :class="tab === 'lines' && 'on'" @click="show('lines')">Dòng thanh toán</button>
+        <button type="button" :class="tab === 'reqs' && 'on'" @click="show('reqs')">Giấy đã xuất</button>
+      </div>
+
+      <div class="unsupported" x-show="unsupported" x-cloak x-text="unsupported"></div>
+
+      <!-- Tab 1: Dòng thanh toán -->
+      <div x-show="tab === 'lines' && !unsupported">
+        <div class="toolbar">
+          <button class="primary" type="button" @click="issue()" title="Cấp số giấy đề nghị mới (DN…) cho các dòng đã chọn, hoặc in lại nếu các dòng đã có số">Xuất giấy đề nghị</button>
+          <button type="button" @click="appendPrompt()" title="Tick các dòng mới (chưa có số) rồi thêm vào một giấy đã xuất, giữ nguyên số giấy">Thêm vào giấy đã xuất…</button>
+          <button type="button" x-show="isAdmin" x-cloak @click="detach()" title="Quản trị: đưa dòng đã chọn ra khỏi giấy (dòng trở lại chưa có số, không xóa dữ liệu)">Gỡ khỏi giấy</button>
+          <button type="button" @click="addRow()">+ Thêm dòng</button>
+          <button type="button" class="danger" @click="remove()">Xóa dòng</button>
+          <span class="colmenu" @click.outside="colOpen = false">
+            <button type="button" @click="colOpen = !colOpen">Cột ▾</button>
+            <div class="pop" x-show="colOpen" x-cloak>
+              <template x-for="c in optionalCols" :key="c.field">
+                <label class="check"><input type="checkbox" :checked="c.on" @change="toggleCol(c.field, $event.target.checked)"> <span x-text="c.title"></span></label>
+              </template>
+            </div>
+          </span>
+          <button type="button" @click="reload()">↻ Cập nhật</button>
+          <span class="spacer"></span>
+          <span class="unsaved" :style="unsaved > 0 ? '' : 'display:none'" style="display:none">
+            <span x-text="unsaved"></span> dòng chưa lưu
+            <button type="button" class="link" @click="retrySave()">Lưu lại</button>
+          </span>
+          <span class="muted small" x-text="info"></span>
+        </div>
+        <div class="filters">
+          <input type="search" placeholder="Tìm (nội dung, người đặt, người đề nghị, NCC…)" x-model.debounce.300ms="f.q" @input.debounce.300ms="applyFilters()" style="width:300px">
+          <label class="check"><input type="checkbox" x-model="f.noCode" @change="applyFilters()"> Chưa có số phiếu</label>
+          <input type="search" placeholder="Số phiếu" style="width:130px" x-model.debounce.300ms="f.code" @input.debounce.300ms="applyFilters()">
+          <button type="button" class="link" @click="clearFilters()">Bỏ lọc</button>
+        </div>
+      </div>
+
+      <!-- Tab 2: Giấy đã xuất -->
+      <div x-show="tab === 'reqs' && !unsupported" x-cloak>
+        <div class="toolbar">
+          <button class="primary" type="button" @click="openSelected()" title="Chọn nhiều giấy để in/lưu thành 1 file PDF">Mở / In giấy đã chọn</button>
+          <button type="button" @click="paidPrompt()">Đánh dấu đã thanh toán…</button>
+          <button type="button" @click="unpaid()">Bỏ đánh dấu</button>
+          <button type="button" @click="loadRequests()">↻ Cập nhật</button>
+          <span class="spacer"></span>
+          <input type="search" placeholder="Tìm số phiếu, người đề nghị, đơn vị…" style="width:260px" x-model.debounce.300ms="rf.q" @input.debounce.300ms="applyReqFilters()">
+          <select x-model="rf.status" @change="applyReqFilters()">
+            <option value="">— Trạng thái TT —</option>
+            <option value="unpaid">Chưa thanh toán</option>
+            <option value="paid">Đã thanh toán</option>
+          </select>
+          <span class="muted small" x-text="reqInfo"></span>
+        </div>
+      </div>
+
+      <!-- Hộp thoại xuất giấy đề nghị -->
+      <div class="modal-back" x-show="dlg.open" x-cloak @keydown.escape.window="dlg.open = false">
+        <form class="modal" style="width:min(520px,100%)" role="dialog" aria-modal="true" aria-label="Xuất giấy đề nghị thanh toán" @submit.prevent="issueConfirm()">
+          <div class="modal-head"><b>Xuất giấy đề nghị thanh toán</b><button type="button" class="link" @click="dlg.open = false">Đóng</button></div>
+          <div class="modal-body" style="display:grid;gap:10px">
+            <div class="small">
+              <span x-text="dlg.count"></span> dòng · Tổng tiền <b x-text="Logic.fmtNum(dlg.total, 0)"></b> đ
+              <div class="muted" x-text="Logic.numToVietnameseWords(dlg.total)"></div>
+            </div>
+            <div class="small" x-show="dlg.mixed" style="color:var(--warn);font-weight:600">Các dòng đã chọn có nhiều người đề nghị khác nhau — chọn người đứng tên giấy.</div>
+            <label class="fgrid-l">Người đề nghị *
+              <input id="dlg-requester" list="dl-payers" x-model="dlg.requester" @change="dlgPayer()" @input="dlgPayer()" required style="width:100%">
+            </label>
+            <label class="fgrid-l">Chức vụ <input x-model="dlg.position" style="width:100%"></label>
+            <label class="fgrid-l">Đơn vị công tác <input x-model="dlg.unit" style="width:100%"></label>
+            <div class="error-text" x-text="dlg.error"></div>
+          </div>
+          <div class="modal-foot"><span class="spacer"></span>
+            <button type="button" @click="dlg.open = false" :disabled="dlg.busy">Hủy</button>
+            <button type="submit" class="primary" :disabled="dlg.busy">Cấp số &amp; mở giấy in</button>
+          </div>
+        </form>
+      </div>
+
+      <!-- Hộp thoại ngày thanh toán -->
+      <div class="modal-back" x-show="pd.open" x-cloak @keydown.escape.window="pd.open = false">
+        <form class="modal" style="width:min(420px,100%)" role="dialog" aria-modal="true" aria-label="Đánh dấu đã thanh toán" @submit.prevent="paidConfirm()">
+          <div class="modal-head"><b>Đánh dấu đã thanh toán</b><button type="button" class="link" @click="pd.open = false">Đóng</button></div>
+          <div class="modal-body" style="display:grid;gap:10px">
+            <div class="small" x-text="pd.codes.join(', ')"></div>
+            <label class="fgrid-l">Ngày thanh toán <input type="date" x-model="pd.date" required></label>
+            <div class="error-text" x-text="pd.error"></div>
+          </div>
+          <div class="modal-foot"><span class="spacer"></span>
+            <button type="button" @click="pd.open = false" :disabled="pd.busy">Hủy</button>
+            <button type="submit" class="primary" :disabled="pd.busy">Xác nhận</button>
+          </div>
+        </form>
+      </div>
+
+      <datalist id="dl-payers"><template x-for="p in payerNames" :key="p"><option :value="p"></option></template></datalist>
+    </div>
+    <style>.fgrid-l { display: grid; gap: 3px; font-size: 13px; font-weight: 600; }</style>
+
+    <!-- Bảng nằm ngoài vùng Alpine để Alpine không phải quét các dòng -->
+    <div id="pay-wrap"><div id="pay-grid"></div>
+      <div class="muted small" style="margin-top:6px">
+        Nhấp vào ô để sửa, tự lưu · Dán từ Excel: nhấp chọn ô bắt đầu rồi Ctrl+V (không chọn ô = thêm dòng mới ở cuối, thứ tự cột như bảng: Ngày | Nội dung | Số tiền | Người đặt hàng | Người đề nghị) ·
+        Dòng đã có số phiếu: chỉ Quản trị sửa được · Tổng ở chân bảng tính theo các dòng đang hiện.
+      </div>
+    </div>
+    <div id="req-wrap" style="display:none"><div id="req-grid"></div>
+      <div class="muted small" style="margin-top:6px">Nhấp đúp một giấy để mở. In lại luôn ra đúng số và người đề nghị như lúc xuất.</div>
+    </div>
+  </main>
+</body>
+</html>

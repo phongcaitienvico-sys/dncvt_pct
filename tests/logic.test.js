@@ -76,3 +76,18 @@ test('normalizeMaterialGroup giữ mã nhóm chuẩn từ chữ thường, nhãn
   assert.equal(L.normalizeMaterialGroup('   ', groups), null);
   assert.equal(L.normalizeMaterialGroup(null, groups), null);
 });
+
+test('numToVietnameseWords khớp công thức "doc so thanh chu" của Sheet', () => {
+  const w = L.numToVietnameseWords;
+  assert.equal(w(0), 'Không đồng./.');
+  assert.equal(w(15), 'Mười lăm đồng./.');
+  assert.equal(w(21), 'Hai mươi mốt đồng./.');
+  assert.equal(w(105), 'Một trăm lẻ năm đồng./.');
+  assert.equal(w(1000005), 'Một triệu năm đồng./.');
+  assert.equal(w(1310000), 'Một triệu ba trăm mười ngàn đồng./.');
+  assert.equal(w(2450000), 'Hai triệu bốn trăm năm mươi ngàn đồng./.');
+  assert.equal(w(1000000000), 'Một tỷ đồng./.');
+  assert.equal(w(11), 'Mười một đồng./.');
+  assert.equal(w(1310000.4), 'Một triệu ba trăm mười ngàn đồng./.');
+  assert.equal(w(250505), 'Hai trăm năm mươi ngàn năm trăm lẻ năm đồng./.');
+});

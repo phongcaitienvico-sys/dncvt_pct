@@ -164,6 +164,37 @@
     return s;
   };
 
+  /**
+   * Đọc số tiền thành chữ — viết lại đúng công thức tab "doc so thanh chu" của Sheet Đề nghị thanh toán
+   * (12 chữ số chia 4 nhóm tỷ/triệu/ngàn/đơn vị; "lẻ", "mốt", "lăm", "mười"; viết hoa chữ đầu; thêm " đồng./.").
+   * Ví dụ: 1310000 → "Một triệu ba trăm mười ngàn đồng./.". Riêng 0 → "Không đồng./.".
+   */
+  L.numToVietnameseWords = function (n) {
+    const v = Math.round(Math.abs(Number(n) || 0));
+    if (!v) return 'Không đồng./.';
+    const DIG = ['', 'một', 'hai', 'ba', 'bốn', 'năm', 'sáu', 'bảy', 'tám', 'chín'];
+    const s = ('000000000000' + v).slice(-12); // giống RIGHT("000000000000"&ROUND(A8,0),12)
+    const units = ['tỷ', 'triệu', 'ngàn', ''];
+    const parts = [];
+    for (let g = 0; g < 4; g++) {
+      const a = +s[g * 3];
+      const b = +s[g * 3 + 1];
+      const c = +s[g * 3 + 2];
+      // hàng trăm
+      parts.push(a ? DIG[a] : '', a ? 'trăm' : '');
+      // hàng chục
+      parts.push(b === 0 ? (a !== 0 && c !== 0 ? 'lẻ' : '') : b === 1 ? 'mười' : DIG[b], b > 1 ? 'mươi' : '');
+      // hàng đơn vị
+      let w = '';
+      if (c === 1) w = b > 1 ? 'mốt' : 'một';
+      else if (c === 5) w = b === 0 ? 'năm' : 'lăm';
+      else if (c) w = DIG[c];
+      parts.push(w, units[g] && (a + b + c) ? units[g] : '');
+    }
+    const t = parts.join(' ').replace(/\s+/g, ' ').trim();
+    return t.charAt(0).toUpperCase() + t.slice(1) + ' đồng./.';
+  };
+
   if (typeof module !== 'undefined' && module.exports) module.exports = L;
   else root.Logic = L;
 })(this);

@@ -1,6 +1,6 @@
 /**
  * Harness kiểm thử & chạy cục bộ toàn bộ kiến trúc Supabase trên PostgreSQL thật (@electric-sql/pglite):
- * - Nạp `tests/helpers/supabase_local_shim.sql` + `supabase/migrations/001_schema_rls_rpc.sql`
+ * - Nạp `tests/helpers/supabase_local_shim.sql` + `supabase/migrations/001_schema_rls_rpc.sql` (+ 002_payments.sql, ... theo thứ tự)
  * - Thực thi thật `SET LOCAL ROLE anon | authenticated | service_role` + `request.jwt.claims`
  * - Tái sử dụng trực tiếp module `supabase/functions/admin-ops/core.js` cho `login`, `auth.changePassword`, `users.save`
  */
@@ -11,7 +11,12 @@ const { PGlite } = require('@electric-sql/pglite');
 const { appError, normalizeRpcError, handleAdminOps } = require('../supabase/functions/admin-ops/core.js');
 
 const SHIM_SQL_PATH = path.join(__dirname, '..', 'tests', 'helpers', 'supabase_local_shim.sql');
-const MIGRATION_SQL_PATH = path.join(__dirname, '..', 'supabase', 'migrations', '001_schema_rls_rpc.sql');
+const MIGRATIONS_DIR = path.join(__dirname, '..', 'supabase', 'migrations');
+// Nạp lần lượt mọi migration theo thứ tự tên file (001_..., 002_..., ...)
+const MIGRATION_SQL_PATHS = fs.readdirSync(MIGRATIONS_DIR)
+  .filter((f) => /^\d+_.*\.sql$/.test(f))
+  .sort()
+  .map((f) => path.join(MIGRATIONS_DIR, f));
 
 const TOKEN_TTL_HOURS = 12;
 const EMAIL_DOMAIN = 'dncvt.local';
@@ -40,6 +45,17 @@ const ACTION_TO_RPC = {
   'users.list': 'rpc_users_list',
   'audit.list': 'rpc_audit_list',
   'export.all': 'rpc_export_all',
+  // 002_payments.sql — Đề nghị thanh toán
+  'payments.list': 'rpc_payments_list',
+  'payments.create': 'rpc_payments_create',
+  'payments.save': 'rpc_payments_save',
+  'payments.delete': 'rpc_payments_delete',
+  'payreq.issue': 'rpc_payreq_issue',
+  'payreq.append': 'rpc_payreq_append',
+  'payreq.detach': 'rpc_payreq_detach',
+  'payreq.list': 'rpc_payreq_list',
+  'payreq.get': 'rpc_payreq_get',
+  'payreq.setPaid': 'rpc_payreq_set_paid',
 };
 
 const EDGE_ACTIONS = new Set(['login', 'auth.changePassword', 'users.save']);
@@ -75,9 +91,10 @@ async function createSupabaseBackend(dataDir = undefined) {
   await db.exec("SET TIME ZONE 'UTC';");
 
   const shimSql = fs.readFileSync(SHIM_SQL_PATH, 'utf8');
-  const migrationSql = fs.readFileSync(MIGRATION_SQL_PATH, 'utf8');
   await db.exec(shimSql);
-  await db.exec(migrationSql);
+  for (const p of MIGRATION_SQL_PATHS) {
+    await db.exec(fs.readFileSync(p, 'utf8'));
+  }
   await db.exec("SET TIME ZONE 'UTC';");
 
   const jwtSecret = crypto.randomUUID() + crypto.randomUUID();
@@ -345,12 +362,17 @@ async function createSupabaseBackend(dataDir = undefined) {
           public.profiles,
           public.audit_log,
           public.sequences,
+          public.payment_lines,
+          public.payment_requests,
+          public.payers,
           private.login_attempts,
           private.backup_snapshots,
           auth.sessions,
           auth.users
         RESTART IDENTITY CASCADE;
         UPDATE private.heartbeat SET pinged_at = '1970-01-01T00:00:00Z' WHERE id = 1;
+        -- 002_payments.sql seed danh mục người đề nghị khi bảng trống (giống lúc chạy migration)
+        SELECT private.seed_payers();
       `);
     },
 

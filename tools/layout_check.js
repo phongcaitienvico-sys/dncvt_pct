@@ -166,7 +166,8 @@ const server = http.createServer((req, res) => {
         const style = getComputedStyle(sheet);
         const rows = [...sheet.querySelectorAll('.items tbody tr')];
         const footer = sheet.querySelector('.pageno');
-        const limit = parseFloat(style.minHeight) - parseFloat(style.paddingBottom) - footer.getBoundingClientRect().height - 12;
+        const footerSpace = footer ? footer.getBoundingClientRect().height + 12 : 0;
+        const limit = parseFloat(style.minHeight) - parseFloat(style.paddingBottom) - footerSpace;
         return {
           count: rows.length,
           minHeight: Math.min(...rows.map(row => row.getBoundingClientRect().height)),

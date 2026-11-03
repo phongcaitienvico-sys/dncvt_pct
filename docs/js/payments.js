@@ -418,6 +418,151 @@ function paymentsPage() {
     payerNames: [],
     dlg: { open: false, busy: false, error: '', requester: '', position: '', unit: '', count: 0, total: 0, mixed: false, keys: [] },
     pd: { open: false, busy: false, error: '', date: '', codes: [] },
+    dl: { orderers: [], suppliers: [], places: [] },
+    fm: { open: false, busy: false, error: '', more: false, c: {}, items: [] },
+    ef: { open: false, busy: false, key: null, id: null, code: '', locked: false, error: '', d: {} },
+
+    // ----- Form thêm nhiều khoản -----
+    fillLists() {
+      this.dl = { orderers: historyOf('orderer'), suppliers: historyOf('supplier'), places: historyOf('receive_place') };
+    },
+    formOpen() {
+      this.fillLists();
+      this.fm = {
+        open: true, busy: false, error: '', more: false,
+        c: { pay_date: today, orderer: '', requester: '', supplier: '', driver_phone: '', plate_no: '', receive_time: '', receive_place: '', note: '' },
+        items: [0, 1, 2].map(() => ({ k: newKey(), content: '', amount: '' })),
+      };
+      setTimeout(() => { const el = document.getElementById('fm-content-0'); if (el) el.focus(); }, 80);
+    },
+    fmTotal() { return (this.fm.items || []).reduce((s, it) => s + (Logic.parseNum(it.amount) || 0), 0); },
+    formAddRow(n) {
+      for (let i = 0; i < n; i++) this.fm.items.push({ k: newKey(), content: '', amount: '' });
+    },
+    formRemove(i) {
+      this.fm.items.splice(i, 1);
+      if (!this.fm.items.length) this.formAddRow(1);
+    },
+    formEnter(i, col) {
+      if (col === 'content') { const el = document.getElementById('fm-amount-' + i); if (el) el.focus(); return; }
+      if (i === this.fm.items.length - 1) this.formAddRow(1);
+      setTimeout(() => { const el = document.getElementById('fm-content-' + (i + 1)); if (el) el.focus(); }, 30);
+    },
+    async formSubmit(issue) {
+      const f = this.fm;
+      if (f.busy) return;
+      const items = f.items.filter((it) => String(it.content).trim() || String(it.amount).trim());
+      if (!items.length) { f.error = 'Hãy nhập ít nhất một khoản (Nội dung và Số tiền).'; return; }
+      const bad = items.findIndex((it) => !String(it.content).trim() || (issue && Logic.parseNum(it.amount) === null) ||
+        (String(it.amount).trim() && Logic.parseNum(it.amount) === null) || (Logic.parseNum(it.amount) !== null && Logic.parseNum(it.amount) < 0));
+      if (bad >= 0) { f.error = 'Khoản thứ ' + (bad + 1) + ' thiếu Nội dung hoặc Số tiền chưa hợp lệ.'; return; }
+      const date = Logic.parseDate(f.c.pay_date) || today;
+      const requester = String(f.c.requester || '').trim();
+      if (issue && !requester) { f.error = 'Hãy nhập Người đề nghị để xuất giấy.'; return; }
+      const t = (v) => String(v === null || v === undefined ? '' : v).trim() || null;
+      const rows = items.map((it) => ({
+        pay_date: date, content: String(it.content).trim(), amount: Logic.parseNum(it.amount),
+        orderer: t(f.c.orderer), requester: t(requester), supplier: t(f.c.supplier), driver_phone: t(f.c.driver_phone),
+        plate_no: t(f.c.plate_no), receive_time: t(f.c.receive_time), receive_place: t(f.c.receive_place), note: t(f.c.note),
+      }));
+      const win = issue ? waitWin('Đang lưu và cấp số giấy đề nghị…') : null; // mở cửa sổ ngay trong thao tác bấm nút
+      f.busy = true; f.error = '';
+      let added = [];
+      try {
+        const lines = await Api.call('payments.create', { rows });
+        added = await table.addData(lines.map((l) => prepare(Object.assign({}, l))), false);
+        updateInfo();
+        if (added.length) table.scrollToRow(added[added.length - 1].getData()._key, 'bottom', false).catch(() => {});
+        if (!issue) {
+          f.open = false;
+          App.toast('Đã thêm ' + lines.length + ' khoản thanh toán.', 'ok');
+        } else {
+          const p = payerOf(requester);
+          const res = await Api.call('payreq.issue', {
+            line_ids: lines.map((l) => l.id),
+            header: { requester, position: p ? p.position || '' : '', unit: p ? p.unit || '' : '' },
+          });
+          markIssued(added, res.code);
+          f.open = false;
+          App.toast('Đã lưu ' + lines.length + ' khoản và cấp số ' + res.code + '.', 'ok', 6000);
+          openPrint(win, [res.code]);
+        }
+      } catch (e) {
+        if (win) win.close();
+        if (added.length) { // đã lưu dòng nhưng bước sau lỗi: không để người dùng bấm lưu lần nữa gây trùng
+          f.open = false;
+          App.toast('Đã lưu ' + added.length + ' khoản nhưng chưa xuất giấy: ' + e.message + ' Hãy tick các dòng mới rồi bấm "Xuất giấy đề nghị".', 'error', 9000);
+        } else f.error = e.message;
+      }
+      f.busy = false;
+    },
+
+    // ----- Form sửa / xóa một dòng -----
+    openEdit() {
+      const rows = table.getSelectedRows();
+      if (rows.length !== 1) { App.toast(rows.length ? 'Chỉ chọn 1 dòng để sửa bằng form (sửa nhiều dòng: nhấp thẳng vào ô).' : 'Hãy tick chọn 1 dòng cần sửa.', 'error'); return; }
+      const r = rows[0].getData();
+      this.fillLists();
+      const d = {};
+      PAY_FIELDS.forEach((f) => { d[f] = r[f] === null || r[f] === undefined ? '' : r[f]; });
+      d.pay_date = Logic.parseDate(r.pay_date) || '';
+      this.ef = { open: true, busy: false, key: r._key, id: r.id, code: r.request_code || '', locked: !!r.request_code && !isAdmin(), error: '', d };
+      setTimeout(() => { const el = document.getElementById('ef-content'); if (el) el.focus(); }, 80);
+    },
+    async saveEdit() {
+      const e = this.ef;
+      if (e.busy || e.locked) return;
+      const row = table.getRow(e.key);
+      if (!row) { e.error = 'Không tìm thấy dòng (có thể đã bị xóa).'; return; }
+      const t = (v) => (v === null || v === undefined ? '' : String(v)).trim() || null;
+      const next = {
+        pay_date: Logic.parseDate(e.d.pay_date) || null, content: t(e.d.content), amount: Logic.parseNum(e.d.amount),
+        orderer: t(e.d.orderer), requester: t(e.d.requester), supplier: t(e.d.supplier), driver_phone: t(e.d.driver_phone),
+        plate_no: t(e.d.plate_no), receive_time: t(e.d.receive_time), receive_place: t(e.d.receive_place), note: t(e.d.note),
+      };
+      if (!next.content) { e.error = 'Thiếu Nội dung.'; return; }
+      if (String(e.d.amount).trim() && next.amount === null) { e.error = 'Số tiền không hợp lệ.'; return; }
+      if (next.amount !== null && next.amount < 0) { e.error = 'Số tiền không được âm.'; return; }
+      if (e.code && next.amount === null) { e.error = 'Dòng đã có số giấy: Số tiền không được để trống.'; return; }
+      const same = (a, b) => (a === null || a === undefined || a === '' ? null : a) === (b === null || b === undefined || b === '' ? null : b);
+      const cur = row.getData();
+      const patch = {};
+      Object.keys(next).forEach((f) => { if (!same(next[f], f === 'pay_date' ? Logic.parseDate(cur[f]) : cur[f])) patch[f] = next[f]; });
+      if (!Object.keys(patch).length) { e.open = false; return; }
+      e.busy = true; e.error = '';
+      try {
+        await flushAll();
+        const id = row.getData().id;
+        if (!id) throw new Error('Dòng chưa lưu xong, thử lại sau giây lát.');
+        const line = await Api.call('payments.save', { id, patch });
+        safeUpdate(row, prepare(Object.assign({}, line, { _key: e.key })));
+        if (e.code) reqStale = true; // tổng tiền của giấy có thể đã đổi
+        updateInfo();
+        e.open = false;
+        App.toast('Đã lưu thay đổi.', 'ok');
+      } catch (err) { e.error = err.message; }
+      e.busy = false;
+    },
+    async deleteEdit() {
+      const e = this.ef;
+      if (e.busy || e.code) return;
+      const row = table.getRow(e.key);
+      if (!row) { e.open = false; return; }
+      if (!confirm('Xóa dòng thanh toán này?\n\n' + String(row.getData().content || '').slice(0, 120))) return;
+      e.busy = true; e.error = '';
+      try {
+        try { await flushAll(); } catch (err) { /* dòng lỗi lưu: chỉ có trên máy này */ }
+        const id = row.getData().id;
+        if (id) await Api.call('payments.delete', { ids: [id] });
+        const k = e.key; pending.delete(k); failed.delete(k); pendingFailed.delete(k);
+        row.delete();
+        refreshUnsaved();
+        updateInfo();
+        e.open = false;
+        App.toast('Đã xóa dòng.', 'ok');
+      } catch (err) { e.error = err.message; }
+      e.busy = false;
+    },
 
     async init() {
       ui = this;

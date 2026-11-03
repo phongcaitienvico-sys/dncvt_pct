@@ -455,6 +455,10 @@ def generate_sql(data: ImportData) -> str:
 # CLI
 # ---------------------------------------------------------------------------
 def main(argv: list[str] | None = None) -> ImportData:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     ap = argparse.ArgumentParser(description="Import lịch sử Đề nghị thanh toán từ file .xlsx của Google Sheet")
     ap.add_argument("source", nargs="?", type=Path, default=DEFAULT_SOURCE, help="File .xlsx (mặc định samples/QL_De_nghi_thanh_toan.xlsx)")
     ap.add_argument("--dry-run", action="store_true", help="Chỉ in báo cáo đối soát, không ghi file")

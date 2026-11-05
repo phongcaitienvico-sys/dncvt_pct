@@ -6,14 +6,14 @@
   <title>In phiếu</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:ital,wght@0,400;0,600;0,700;1,400&display=swap&subset=vietnamese" rel="stylesheet">
-  <link rel="stylesheet" href="css/app.css?v=mw0g7cfs">
+  <link rel="stylesheet" href="css/app.css?v=mw36ep60">
   <link rel="stylesheet" href="css/print.css?v=20261023-layout3">
   <script src="https://cdn.jsdelivr.net/npm/nunjucks@3.2.4/browser/nunjucks.min.js"></script>
-  <script src="js/config.js?v=mw0g7cfs"></script>
-  <script src="js/logic.js?v=mw0g7cfs"></script>
-  <script src="js/vendor/supabase.min.js?v=mw0g7cfs"></script>
-  <script src="js/app.js?v=mw0g7cfs"></script>
-  <script src="js/print_mapping.js?v=20261102-payments"></script>
+  <script src="js/config.js?v=mw36ep60"></script>
+  <script src="js/logic.js?v=mw36ep60"></script>
+  <script src="js/vendor/supabase.min.js?v=mw36ep60"></script>
+  <script src="js/app.js?v=mw36ep60"></script>
+  <script src="js/print_mapping.js?v=mw36ep60"></script>
 </head>
 <body class="print">
   <div class="print-toolbar">
@@ -103,6 +103,7 @@
         if (format === 'date') return Logic.fmtDate(v);
         if (format === 'num') return Logic.fmtNum(v);
         if (format === 'money') return Logic.fmtNum(v, 0);
+        if (format === 'money_d') { const s = Logic.fmtNum(v, 0); return s ? s + ' đ' : ''; }
         return v;
       };
       const get = (obj, path) => String(path || '').split('.').reduce((o, k) => (o === null || o === undefined ? undefined : o[k]), obj);
@@ -218,7 +219,8 @@
             return {
               request: x, header, total, words: Logic.numToVietnameseWords(total),
               pages: chunk(lines, n, m.min_rows),
-              date_line: m.date_line_blank ? dateLine(null) : dateLine(String(x.issued_at || '').slice(0, 10)),
+              date_line: m.date_line_blank ? (M.company.place ? M.company.place + ', ngày' : 'Ngày') : dateLine(String(x.issued_at || '').slice(0, 10)),
+              date_blank: !!m.date_line_blank,
               signatures: (m.signatures || []).map((s) => Object.assign({}, s, {
                 name: s.name_from === 'requester' ? fullName(header.requester) : (s.name || ''),
               })),

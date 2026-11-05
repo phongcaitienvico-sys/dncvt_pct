@@ -127,12 +127,12 @@ window.PRINT_MAPPING = {
     recipient: 'Kính gửi: Ban giám đốc Công ty TNHH Thắng Lợi',
     intro: 'Xin đề nghị thanh toán cụ thể như sau:',
     attach_label: 'Kèm theo (chứng từ gốc)',
-    date_line_blank: true,         // true: "Ninh Bình, ngày …… tháng …… năm ……" (ghi tay, như Sheet); false: in ngày xuất giấy
+    date_line_blank: true,         // true: "Ninh Bình, ngày      " (ghi tay); false: in ngày xuất giấy
     columns: [
       { label: 'STT', field: 'stt', width: '9%', align: 'center' },
       { label: 'Nội dung', field: 'content', width: '57%' },
       { label: 'Ngày', field: 'pay_date', format: 'date', width: '15%', align: 'center' },
-      { label: 'Số tiền', field: 'amount', format: 'money', width: '19%', align: 'right' },
+      { label: 'Số tiền', field: 'amount', format: 'money_d', width: '19%', align: 'right' },
     ],
     // name_from: 'requester' → in tên Người đề nghị đứng tên trên giấy
     signatures: [

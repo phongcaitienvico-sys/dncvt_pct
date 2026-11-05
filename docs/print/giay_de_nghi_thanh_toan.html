@@ -23,6 +23,7 @@
   .gdntt .words span:last-child { font-style: italic; text-align: right; }
   .gdntt .attach { margin-top: 2mm; }
   .gdntt .date-line { text-align: right; font-style: italic; margin: 5mm 6mm 1mm 0; }
+  .gdntt .blank-date { display: inline-block; width: 42mm; }
   .gdntt .signs { margin-top: 2mm; }
   .gdntt .signs .t { font-weight: 700; }
   .gdntt .cont { display: flex; justify-content: space-between; font-weight: 700; margin-bottom: 3mm; }
@@ -61,7 +62,7 @@
         <tr>
           <td colspan="{{ m.columns.length - 2 }}"></td>
           <td class="center">Tổng cộng:</td>
-          <td class="right sum">{{ fmt(d.total, 'money') }}</td>
+          <td class="right sum">{{ fmt(d.total, 'money_d') }}</td>
         </tr>
       </tfoot>
       {% endif %}
@@ -70,7 +71,7 @@
     {% if loop.last %}
       <div class="words"><span>Số tiền viết bằng chữ:</span><span>{{ d.words }}</span></div>
       <div class="attach">{{ m.attach_label }}</div>
-      <div class="date-line">{{ d.date_line }}</div>
+      <div class="date-line">{{ d.date_line }}{% if d.date_blank %}<span class="blank-date"></span>{% endif %}</div>
       <div class="signs" style="grid-template-columns: repeat({{ d.signatures.length }}, 1fr)">
         {% for s in d.signatures %}
           <div><div class="t">{{ s.title }}</div><div class="n">{{ s.name }}</div></div>

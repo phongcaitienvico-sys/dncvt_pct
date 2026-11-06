@@ -7,14 +7,14 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;600;700&display=swap&subset=vietnamese" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/tabulator-tables@6.3.1/dist/css/tabulator_simple.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="css/app.css?v=mw36ep60">
+  <link rel="stylesheet" href="css/app.css?v=mw48t1z3">
   <script src="https://cdn.jsdelivr.net/npm/tabulator-tables@6.3.1/dist/js/tabulator.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script src="js/config.js?v=mw36ep60"></script>
-  <script src="js/logic.js?v=mw36ep60"></script>
-  <script src="js/vendor/supabase.min.js?v=mw36ep60"></script>
-  <script src="js/app.js?v=mw36ep60"></script>
-  <script src="js/lines.js?v=mw36ep60"></script>
+  <script src="js/config.js?v=mw48t1z3"></script>
+  <script src="js/logic.js?v=mw48t1z3"></script>
+  <script src="js/vendor/supabase.min.js?v=mw48t1z3"></script>
+  <script src="js/app.js?v=mw48t1z3"></script>
+  <script src="js/lines.js?v=mw48t1z3"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js"></script>
   <style>
     #grid { background: #fff; }
@@ -93,7 +93,7 @@
                 ← Thêm vào phiếu vừa xuất <b x-text="fm.lastCode"></b></button>
               <span x-show="fm.c.append_code" style="color:var(--warn);font-weight:600">Các vật tư dưới đây sẽ được thêm vào phiếu <span x-text="fm.c.append_code"></span>, không cấp số mới.</span>
             </div>
-            <label>Đơn vị đề xuất <input list="dl-unit" x-model="fm.c.unit"></label>
+            <label>Đơn vị đề xuất * <input id="fm-unit" list="dl-unit" x-model="fm.c.unit" required placeholder="Chọn phòng ban / đơn vị"></label>
             <label class="wide">Hạng mục (mã — tên) <input list="dl-project" x-model="fm.c.project" @change="formProject()" placeholder="Gõ để tìm, vd. MS332"></label>
             <label>Địa điểm giao <input list="dl-loc" x-model="fm.c.delivery_location"></label>
             <label>Người yêu cầu <input list="dl-req" x-model="fm.c.requester"></label>
@@ -176,7 +176,7 @@
             <label>SL tồn kho <input x-model="ef.d.qty_on_hand" inputmode="decimal"></label>
             <label>Ngày cần có <input type="date" x-model="ef.d.need_date"></label>
             <label>Đơn giá <input x-model="ef.d.unit_price" inputmode="decimal"></label>
-            <label>Đơn vị đề xuất <input list="dl-unit" x-model="ef.d.unit"></label>
+            <label>Đơn vị đề xuất * <input id="ef-unit" list="dl-unit" x-model="ef.d.unit" required placeholder="Chọn phòng ban / đơn vị"></label>
             <label class="wide">Hạng mục (mã — tên) <input list="dl-project" x-model="ef.d.project"></label>
             <label>Địa điểm giao <input list="dl-loc" x-model="ef.d.delivery_location"></label>
             <label class="wide">Mục đích sử dụng <input list="dl-purpose" x-model="ef.d.purpose"></label>

@@ -6,14 +6,14 @@
   <title>In phiếu</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:ital,wght@0,400;0,600;0,700;1,400&display=swap&subset=vietnamese" rel="stylesheet">
-  <link rel="stylesheet" href="css/app.css?v=mw36ep60">
+  <link rel="stylesheet" href="css/app.css?v=mw48t1z3">
   <link rel="stylesheet" href="css/print.css?v=20261023-layout3">
   <script src="https://cdn.jsdelivr.net/npm/nunjucks@3.2.4/browser/nunjucks.min.js"></script>
-  <script src="js/config.js?v=mw36ep60"></script>
-  <script src="js/logic.js?v=mw36ep60"></script>
-  <script src="js/vendor/supabase.min.js?v=mw36ep60"></script>
-  <script src="js/app.js?v=mw36ep60"></script>
-  <script src="js/print_mapping.js?v=mw36ep60"></script>
+  <script src="js/config.js?v=mw48t1z3"></script>
+  <script src="js/logic.js?v=mw48t1z3"></script>
+  <script src="js/vendor/supabase.min.js?v=mw48t1z3"></script>
+  <script src="js/app.js?v=mw48t1z3"></script>
+  <script src="js/print_mapping.js?v=mw48t1z3"></script>
 </head>
 <body class="print">
   <div class="print-toolbar">
@@ -155,8 +155,10 @@
         let list;
         if (signerSets) {
           const key = Array.from(signerSets.keys()).find((k) => k && Logic.fold(unit).includes(k));
-          list = signerSets.get(key !== undefined ? key : '') || [];
-        } else {
+          list = (key !== undefined && signerSets.get(key)) || signerSets.get('') || [];
+          if (!list.length && signerSets.size === 1) list = Array.from(signerSets.values())[0] || [];
+        }
+        if (!list || !list.length) {
           const set = (m.signature_sets || []).find((x) => Logic.fold(unit).includes(Logic.fold(x.unit_contains)));
           list = (set && set.signatures) || m.signatures || [];
         }
@@ -167,12 +169,21 @@
       const withStt = (lines) => lines.map((l, i) => Object.assign({}, l, {
         _stt: i + 1, material_group: Logic.normalizeMaterialGroup(l.material_group, boot.catalogs.material_groups), amount: l.unit_price === null || l.unit_price === undefined ? null : Logic.amount(l),
       }));
+      const joinLineField = (lines, f) => Array.from(new Set((lines || []).map((l) => String(l[f] || '').trim()).filter(Boolean))).join('; ');
 
       // Chuẩn bị dữ liệu cho từng mẫu
       const PREPARE = {
         phieu_de_nghi(n) {
           return data.map((x) => {
-            const header = Object.assign({}, x.request.header_json || {});
+            const saved = x.request.header_json || {};
+            // Lấy ưu tiên từ các dòng vật tư hiện tại để khi sửa bổ sung Đơn vị đề xuất / Người yêu cầu / Hạng mục sau khi xuất phiếu thì in lại cập nhật ngay
+            const header = Object.assign({}, saved, {
+              unit: joinLineField(x.lines, 'unit') || saved.unit || '',
+              project_code: joinLineField(x.lines, 'project_code') || saved.project_code || '',
+              project_name: joinLineField(x.lines, 'project_name') || saved.project_name || '',
+              delivery_location: joinLineField(x.lines, 'delivery_location') || saved.delivery_location || '',
+              requester: joinLineField(x.lines, 'requester') || saved.requester || x.request.issued_by || '',
+            });
             header.project = [header.project_code, header.project_name].filter(Boolean).join(' — ');
             return {
               request: x.request, header, pages: chunk(withStt(x.lines), n, m.min_rows),
@@ -202,9 +213,11 @@
         phieu_ban_giao(n) {
           const rows = data.map((x, i) => {
             const h = x.request.header_json || {};
+            const pCode = joinLineField(x.lines, 'project_code') || h.project_code || '';
+            const pName = joinLineField(x.lines, 'project_name') || h.project_name || '';
             return {
-              _stt: i + 1, code: x.request.code, unit: h.unit, line_count: x.lines.length,
-              project: [h.project_code, h.project_name].filter(Boolean).join(' — '),
+              _stt: i + 1, code: x.request.code, unit: joinLineField(x.lines, 'unit') || h.unit || '', line_count: x.lines.length,
+              project: [pCode, pName].filter(Boolean).join(' — '),
               issued_date: String(x.request.issued_at || '').slice(0, 10),
             };
           });

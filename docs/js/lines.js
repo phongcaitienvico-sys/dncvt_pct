@@ -544,8 +544,10 @@ function linesPage() {
 
   function checkIssuable(data) {
     const bad = data.filter((d) => !d.name || !(d.qty_requested > 0));
-    if (bad.length) App.toast(bad.length + ' dòng thiếu tên vật tư hoặc số lượng yêu cầu.', 'error');
-    return !bad.length;
+    if (bad.length) { App.toast(bad.length + ' dòng thiếu tên vật tư hoặc số lượng yêu cầu.', 'error'); return false; }
+    const noUnit = data.filter((d) => !String(d.unit || '').trim());
+    if (noUnit.length) { App.toast(noUnit.length + ' dòng chưa chọn Đơn vị đề xuất (phòng ban). Hãy điền Đơn vị đề xuất trước khi xuất phiếu.', 'error'); return false; }
+    return true;
   }
 
   /** Lưu hết thay đổi đang chờ rồi trả id của các dòng (dòng mới cần được tạo xong trên máy chủ). */
@@ -649,7 +651,11 @@ function linesPage() {
       this.formNeedDate();
       this.fm.error = '';
       this.fm.open = true;
-      setTimeout(() => { const el = document.getElementById('fm-name-0'); if (el) el.focus(); }, 100);
+      setTimeout(() => {
+        const id = (this.fm.c.unit || '').trim() ? 'fm-name-0' : 'fm-unit';
+        const el = document.getElementById(id);
+        if (el) el.focus();
+      }, 100);
     },
     // ---------- Form sửa một dòng ----------
     ef: { open: false, key: null, error: '', locked: false, code: '', d: {} },
@@ -680,6 +686,12 @@ function linesPage() {
       };
       const pj = formProjectOf(e.d.project);
       next.project_code = pj.code; next.project_name = pj.name;
+      if (!next.unit) {
+        e.error = 'Vui lòng chọn Đơn vị đề xuất (phòng ban).';
+        const el = document.getElementById('ef-unit');
+        if (el) el.focus();
+        return;
+      }
       if (!next.name) { e.error = 'Thiếu tên vật tư.'; return; }
       if (!(next.qty_requested > 0)) { e.error = 'Số lượng yêu cầu phải lớn hơn 0.'; return; }
       const same = (a, b) => (a === null || a === undefined || a === '' ? null : a) === (b === null || b === undefined || b === '' ? null : b);
@@ -748,6 +760,12 @@ function linesPage() {
     async formSubmit(issue) {
       this.fm.error = '';
       const c = this.fm.c;
+      if (!(c.unit || '').trim()) {
+        this.fm.error = 'Vui lòng chọn Đơn vị đề xuất (phòng ban).';
+        const el = document.getElementById('fm-unit');
+        if (el) el.focus();
+        return;
+      }
       const items = [];
       for (let i = 0; i < this.fm.items.length; i++) {
         const it = this.fm.items[i];

@@ -6,14 +6,14 @@
   <title>In phiếu</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:ital,wght@0,400;0,600;0,700;1,400&display=swap&subset=vietnamese" rel="stylesheet">
-  <link rel="stylesheet" href="css/app.css?v=mw48t1z3">
+  <link rel="stylesheet" href="css/app.css?v=mw63bn0c">
   <link rel="stylesheet" href="css/print.css?v=20261023-layout3">
   <script src="https://cdn.jsdelivr.net/npm/nunjucks@3.2.4/browser/nunjucks.min.js"></script>
-  <script src="js/config.js?v=mw48t1z3"></script>
-  <script src="js/logic.js?v=mw48t1z3"></script>
-  <script src="js/vendor/supabase.min.js?v=mw48t1z3"></script>
-  <script src="js/app.js?v=mw48t1z3"></script>
-  <script src="js/print_mapping.js?v=mw48t1z3"></script>
+  <script src="js/config.js?v=mw63bn0c"></script>
+  <script src="js/logic.js?v=mw63bn0c"></script>
+  <script src="js/vendor/supabase.min.js?v=mw63bn0c"></script>
+  <script src="js/app.js?v=mw63bn0c"></script>
+  <script src="js/print_mapping.js?v=mw63bn0c"></script>
 </head>
 <body class="print">
   <div class="print-toolbar">
@@ -140,6 +140,22 @@
       Object.keys(M.name_aliases || {}).forEach((k) => { aliasMap[Logic.fold(k)] = M.name_aliases[k]; });
       const fullName = (v) => String(v || '').split(/\s*;\s*/).filter(Boolean).map((n) => aliasMap[Logic.fold(n)] || n).filter((n, i, arr) => arr.findIndex((x) => Logic.fold(x) === Logic.fold(n)) === i).join('; '); // bỏ tên trùng (vd. "Hiếu" + "Nguyễn Văn Hiếu")
       // Người ký sửa trong Quản trị → Danh mục → Người ký phiếu đề nghị; chưa có danh mục đó thì dùng bộ trong print_mapping.js
+      const signerSlot = (r, fallbackPos) => {
+        const t = Logic.fold(r.title || '').trim();
+        if (t.includes('lap phieu')) return 1;
+        if (t.includes('xem xet')) return 2;
+        if (t.startsWith('t.p') || t.includes('truong phong') || t.includes('tp ')) return 3;
+        if (t.includes('giam doc')) return 4;
+        const p = Number(r.position);
+        return p >= 1 ? p : fallbackPos;
+      };
+      const matchUnitKey = (u, k) => {
+        if (!u || !k) return false;
+        if (u.includes(k) || k.includes(u)) return true;
+        const isTB = (s) => /\bp\.?\s*tb\b|\bthiet bi\b/.test(s);
+        const isCT = (s) => /\bp\.?\s*ct\b|\bcai tien\b/.test(s);
+        return (isTB(u) && isTB(k)) || (isCT(u) && isCT(k));
+      };
       const signerSets = (() => {
         const rows = (boot.catalogs.signers || []).filter((r) => r.title);
         if (!rows.length) return null;
@@ -147,21 +163,24 @@
         rows.slice().sort((a, b) => (Number(a.position) || 0) - (Number(b.position) || 0) || a.id - b.id).forEach((r) => {
           const key = Logic.fold(r.unit_contains || '').trim();
           if (!sets.has(key)) sets.set(key, []);
-          sets.get(key).push({ title: r.title, name: r.name || '', name_from: r.name ? null : 'requester' });
+          const arr = sets.get(key);
+          arr.push({ pos: signerSlot(r, arr.length + 1), title: r.title, name: r.name || '', name_from: r.name ? null : 'requester' });
         });
         return sets;
       })();
       const signaturesFor = (unit, requester) => {
-        let list;
+        const u = Logic.fold(unit || '').trim();
+        const set = (m.signature_sets || []).find((x) => matchUnitKey(u, Logic.fold(x.unit_contains || '').trim()));
+        const base = (set && set.signatures) || m.signatures || [];
+        const byPos = new Map();
+        base.forEach((s, i) => byPos.set(i + 1, Object.assign({}, s)));
         if (signerSets) {
-          const key = Array.from(signerSets.keys()).find((k) => k && Logic.fold(unit).includes(k));
-          list = (key !== undefined && signerSets.get(key)) || signerSets.get('') || [];
-          if (!list.length && signerSets.size === 1) list = Array.from(signerSets.values())[0] || [];
+          // Áp bộ mặc định (unit_contains trống) trước, rồi ghi đè các vị trí riêng của phòng ban khớp
+          (signerSets.get('') || []).forEach((s) => byPos.set(s.pos, Object.assign({}, s)));
+          const key = Array.from(signerSets.keys()).find((k) => k && matchUnitKey(u, k));
+          if (key !== undefined) (signerSets.get(key) || []).forEach((s) => byPos.set(s.pos, Object.assign({}, s)));
         }
-        if (!list || !list.length) {
-          const set = (m.signature_sets || []).find((x) => Logic.fold(unit).includes(Logic.fold(x.unit_contains)));
-          list = (set && set.signatures) || m.signatures || [];
-        }
+        const list = Array.from(byPos.keys()).sort((a, b) => a - b).map((pos) => byPos.get(pos));
         return list.map((s) => Object.assign({}, s, {
           name: s.name_from === 'requester' ? fullName(requester) : (s.name || ''),
         }));

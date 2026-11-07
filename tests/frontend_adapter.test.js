@@ -917,11 +917,12 @@ test('Đề nghị thanh toán: 10 action payments/payreq đi đúng RPC ở Sup
 
 // ---------- Bảng vật tư: nút thao tác ở đầu mỗi dòng, nhấp đúp mở form, thanh chọn nhiều dòng ----------
 
-async function setupLinesPage(rowsData, { selected = [] } = {}) {
+async function setupLinesPage(rowsData, { selected = [], confirmResult = true, load = false } = {}) {
   const { sandbox, runScript } = createBrowserEnv({ pathname: '/lines.html' });
   const handlers = {};
   const calls = [];
   let config = null;
+  let tableFilter = null;
   const rows = rowsData.map((data) => ({
     data,
     deleted: false,
@@ -938,18 +939,23 @@ async function setupLinesPage(rowsData, { selected = [] } = {}) {
     config = cfg;
     return {
       on(ev, fn) { handlers[ev] = fn; if (ev === 'tableBuilt') setTimeout(fn, 0); },
-      setData: async () => {}, setFilter() {}, redraw() {}, blockRedraw() {}, restoreRedraw() {},
+      setData: async () => {}, addData: async () => {}, setFilter(fn) { tableFilter = fn; }, refreshFilter() {}, redraw() {}, blockRedraw() {}, restoreRedraw() {},
       getData: () => rows.map((r) => r.data),
       getDataCount: () => rows.length,
       getSelectedRows: () => selected.map(byKey),
       getRow: byKey,
-      getColumns: () => [],
+      getColumns: () => ['unit', 'name'].map((f) => ({ getField: () => f, isVisible: () => true, getDefinition: () => ({ title: f }), setWidth() {} })),
+      getRows: () => rows,
       deselectRow() { calls.push({ deselectAll: true }); },
       scrollToRow: async () => {},
     };
   };
-  sandbox.document.getElementById = () => ({ addEventListener() {}, setAttribute() {} });
-  sandbox.confirm = () => true;
+  sandbox.document.getElementById = () => ({ addEventListener(ev, fn) { handlers['dom_' + ev] = fn; }, setAttribute() {}, focus() {} });
+  sandbox.window.open = () => null;
+  sandbox.App.openPrintWindow = () => null;
+  sandbox.App.printUrl = (codes) => 'print.html?codes=' + codes.join(',');
+  const confirms = [];
+  sandbox.confirm = (msg) => { confirms.push(msg); return confirmResult; };
   sandbox.App.prefetchRecent = () => {};
   const boot = {
     today: '2026-10-26', users: [],
@@ -957,13 +963,13 @@ async function setupLinesPage(rowsData, { selected = [] } = {}) {
     catalogs: { project_items: [], units: [{ name: 'PX1' }], material_groups: [], uoms: [], suppliers: [] },
   };
   sandbox.App.init = async () => { sandbox.App.boot = boot; sandbox.App.user = boot.user; return boot; };
-  sandbox.App.loadLines = async () => ({ objects: [], diff: null });
+  sandbox.App.loadLines = async () => ({ objects: load ? rowsData.map((d) => Object.assign({}, d)) : [], diff: null });
   sandbox.App.toast = (msg, kind) => calls.push({ toast: msg, kind });
   sandbox.Api.call = async (action, params) => { calls.push({ action, params }); return action === 'lines.delete' ? {} : []; };
   runScript('js/lines.js');
   const page = sandbox.linesPage();
   await page.init();
-  return { page, config, handlers, calls, rows, fromVm };
+  return { page, config, handlers, calls, rows, confirms, sandbox, filterFn: tableFilter, fromVm };
 }
 
 test('Bảng vật tư: cột thao tác ✎ ⧉ 🗑 ở đầu dòng; 🗑 xóa đúng dòng đó mà không cần tick', async () => {
@@ -1025,4 +1031,601 @@ test('Bảng vật tư: form sửa có nút Xóa dòng này; số dòng đang ti
   assert.equal(t.page.sel, 2);
   t.page.deselectAll();
   assert.ok(t.calls.some((c) => c.deselectAll));
+});
+
+// ---------- Đơn vị đề xuất: chỉ 2 phòng ban, người ký đổi theo phòng ban ----------
+
+const LogicNode = require('../docs/js/logic.js');
+const PRINT_M = (() => { const sb = { window: {} }; vm.runInNewContext(fs.readFileSync(path.join(DOCS, 'js', 'print_mapping.js'), 'utf8'), sb); return sb.window.PRINT_MAPPING; })();
+const SEED_SIGNERS = [
+  { id: 1, unit_contains: '', position: '1', title: 'Người lập phiếu', name: '' },
+  { id: 2, unit_contains: '', position: '2', title: 'Người xem xét', name: 'Vũ Văn Trường' },
+  { id: 3, unit_contains: '', position: '3', title: 'T.P Thiết bị', name: 'Vũ Văn Trường' },
+  { id: 4, unit_contains: '', position: '4', title: 'Giám đốc duyệt', name: 'Phạm Danh Mạnh' },
+  { id: 5, unit_contains: 'Cải tiến', position: '1', title: 'Người lập phiếu', name: '' },
+  { id: 6, unit_contains: 'Cải tiến', position: '2', title: 'Người xem xét', name: 'Trần Việt Tiệp' },
+  { id: 7, unit_contains: 'Cải tiến', position: '3', title: 'T.P Cải tiến', name: 'Trần Việt Tiệp' },
+  { id: 8, unit_contains: 'Cải tiến', position: '4', title: 'Giám đốc duyệt', name: 'Phạm Danh Mạnh' },
+];
+const signCtx = (signers) => ({ mapping: PRINT_M.phieu_de_nghi, signers, aliases: PRINT_M.name_aliases });
+const signAt = (list, pos) => list[pos - 1];
+
+test('Logic.normalizeUnit: gộp tên cũ về 2 phòng chuẩn, tên khác trả null', () => {
+  assert.deepEqual(fromVm(LogicNode.UNITS), ['Phòng Cải tiến', 'Phòng Thiết bị']);
+  ['P.Cải tiến', 'P.CT', 'phòng cải tiến', 'P. Cải  tiến', 'Phong Cai Tien', 'Phòng Cải tiến'].forEach((v) => assert.equal(LogicNode.normalizeUnit(v), 'Phòng Cải tiến', v));
+  ['P.TB', 'P. Thiết bị', 'Phòng Thiết bị', 'phong tb', ' P.Thiết bị '].forEach((v) => assert.equal(LogicNode.normalizeUnit(v), 'Phòng Thiết bị', v));
+  ['Xưởng Cơ khí', 'Xưởng sửa chữa thiết bị', '', null, undefined, 'Phòng Kế toán', 'Phòng Cải tiến 2'].forEach((v) => assert.equal(LogicNode.normalizeUnit(v), null, String(v)));
+});
+
+test('Logic.signaturesFor: đổi phòng ban thì người ký đổi đúng, tên cũ và mới cho cùng bộ ký', () => {
+  const ctx = signCtx(SEED_SIGNERS);
+  ['Phòng Cải tiến', 'P.Cải tiến', 'P.CT'].forEach((u) => {
+    const l = LogicNode.signaturesFor(u, 'Nam', ctx);
+    assert.equal(l.length, 4, u);
+    assert.equal(signAt(l, 1).name, 'Phan Thành Nam', u + ' vị trí 1 = tên người yêu cầu (đổi tên đầy đủ)');
+    assert.equal(signAt(l, 2).name, 'Trần Việt Tiệp', u);
+    assert.equal(signAt(l, 3).title, 'T.P Cải tiến', u);
+    assert.equal(signAt(l, 3).name, 'Trần Việt Tiệp', u);
+    assert.equal(signAt(l, 4).name, 'Phạm Danh Mạnh', u);
+  });
+  ['Phòng Thiết bị', 'P.TB', 'P. Thiết bị'].forEach((u) => {
+    const l = LogicNode.signaturesFor(u, 'Nguyễn Văn A', ctx);
+    assert.equal(signAt(l, 1).name, 'Nguyễn Văn A', u);
+    assert.equal(signAt(l, 2).name, 'Vũ Văn Trường', u);
+    assert.equal(signAt(l, 3).title, 'T.P Thiết bị', u);
+    assert.equal(signAt(l, 3).name, 'Vũ Văn Trường', u);
+    assert.equal(signAt(l, 4).name, 'Phạm Danh Mạnh', u);
+  });
+  // đổi qua lại: không sót tiêu đề / tên của phòng cũ
+  const ct = LogicNode.signaturesFor('Phòng Cải tiến', 'A', ctx);
+  const tb = LogicNode.signaturesFor('Phòng Thiết bị', 'A', ctx);
+  assert.ok(!tb.some((s) => /Cải tiến|Tiệp/.test(s.title + s.name)), 'bộ Thiết bị không chứa Cải tiến/Tiệp');
+  assert.ok(!ct.some((s) => /Thiết bị|Trường/.test(s.title + s.name)), 'bộ Cải tiến không chứa Thiết bị/Trường');
+  assert.notDeepEqual(fromVm(ct), fromVm(tb));
+});
+
+test('Logic.signaturesFor: phòng chỉ khai 1 vị trí thì các vị trí còn lại kế thừa bộ mặc định; danh mục rỗng dùng print_mapping', () => {
+  const partial = SEED_SIGNERS.slice(0, 4).concat([{ id: 9, unit_contains: 'Cải tiến', position: '3', title: 'T.P Cải tiến', name: 'Trần Việt Tiệp' }]);
+  const l = LogicNode.signaturesFor('P.Cải tiến', 'Nam', signCtx(partial));
+  assert.equal(signAt(l, 1).name, 'Phan Thành Nam');
+  assert.equal(signAt(l, 2).name, 'Vũ Văn Trường');
+  assert.equal(signAt(l, 3).title + '|' + signAt(l, 3).name, 'T.P Cải tiến|Trần Việt Tiệp');
+  assert.equal(signAt(l, 4).name, 'Phạm Danh Mạnh');
+
+  const fb = LogicNode.signaturesFor('P.Cải tiến', 'Nam', signCtx([]));
+  assert.equal(signAt(fb, 3).title, 'T.P Cải tiến');
+  assert.equal(signAt(fb, 2).name, 'Trần Việt Tiệp');
+  const fb2 = LogicNode.signaturesFor('Phòng Thiết bị', 'Nam', signCtx(undefined));
+  assert.equal(signAt(fb2, 3).title, 'T.P Thiết bị');
+  assert.equal(signAt(fb2, 1).name, 'Phan Thành Nam');
+});
+
+test('print.html: gọi Logic.signaturesFor, gộp đơn vị theo normalizeUnit và nạp logic.js trước script inline', () => {
+  const html = fs.readFileSync(path.join(DOCS, 'print.html'), 'utf8');
+  assert.match(html, /Logic\.signaturesFor\(/);
+  assert.match(html, /Logic\.normalizeUnit\(/);
+  assert.ok(!/const matchUnitKey|const signerSets/.test(html), 'logic ký đã chuyển sang logic.js');
+  const logicIdx = html.indexOf('js/logic.js');
+  const inlineIdx = html.indexOf('<script>');
+  assert.ok(logicIdx > 0 && inlineIdx > logicIdx, 'logic.js phải nạp trước script inline');
+});
+
+test('lines.html: Đơn vị đề xuất ở form thêm / sửa là select bắt buộc', () => {
+  const html = fs.readFileSync(path.join(DOCS, 'lines.html'), 'utf8');
+  assert.match(html, /<select id="fm-unit"[^>]*required/);
+  assert.match(html, /<select id="ef-unit"[^>]*required/);
+  assert.ok(!html.includes('dl-unit'));
+});
+
+const unitCol = (t) => t.config.columns.find((c) => c.field === 'unit');
+const hasToast = (t, re) => t.calls.some((c) => c.toast && re.test(c.toast));
+
+test('Bảng vật tư: ô Đơn vị chỉ chọn 2 phòng (không gõ tự do, không xóa); giữ tên cũ khi hiển thị', async () => {
+  const t = await setupLinesPage([{ _key: 'i1', id: 1, name: 'A', qty_requested: 1, unit: 'P.Cải tiến' }]);
+  const col = unitCol(t);
+  const p = col.editorParams;
+  assert.deepEqual(fromVm(p.values), ['Phòng Cải tiến', 'Phòng Thiết bị']);
+  assert.equal(p.freetext, false);
+  assert.equal(p.clearable, false);
+  assert.equal(p.allowEmpty, false);
+  assert.equal(col.mutatorEdit('P.TB'), 'Phòng Thiết bị');
+  assert.equal(col.mutatorEdit('linh tinh'), null);
+  assert.equal(t.rows[0].data.unit, 'P.Cải tiến');
+});
+
+test('Bảng vật tư: ô Đơn vị nhận giá trị lạ thì giữ giá trị cũ, không xóa trắng', async () => {
+  const t = await setupLinesPage([{ _key: 'i1', id: 1, name: 'A', qty_requested: 1, unit: 'P.Cải tiến' }]);
+  const row = t.rows[0];
+  const cell = { getField: () => 'unit', getRow: () => row, getOldValue: () => 'P.Cải tiến', getValue: () => null, setValue(v) { row.data.unit = v; } };
+  row.data.unit = null; // mutatorEdit trả null khi gõ giá trị lạ
+  t.handlers.cellEdited(cell);
+  assert.equal(row.data.unit, 'P.Cải tiến', 'ô không bị xóa trắng');
+});
+
+test('Bảng vật tư: bộ lọc Đơn vị gộp tên cũ và mới', async () => {
+  const t = await setupLinesPage([
+    { _key: 'i1', id: 1, name: 'A', unit: 'P.Cải tiến' }, { _key: 'i2', id: 2, name: 'B', unit: 'Phòng Cải tiến' },
+    { _key: 'i3', id: 3, name: 'C', unit: 'P.TB' }, { _key: 'i4', id: 4, name: 'D', unit: 'Xưởng Cơ khí' },
+  ], { load: true });
+  assert.deepEqual(fromVm(t.page.opts.units), ['Phòng Cải tiến', 'Phòng Thiết bị', 'Xưởng Cơ khí']);
+  const filt = t.filterFn;
+  assert.equal(typeof filt, 'function');
+  const res = (u) => { t.page.f.unit = u; return t.rows.map((r) => !!filt(r.data)); };
+  assert.deepEqual(res('Phòng Cải tiến'), [true, true, false, false]);
+  assert.deepEqual(res('Phòng Thiết bị'), [false, false, true, false]);
+  assert.deepEqual(res('Xưởng Cơ khí'), [false, false, false, true]);
+});
+
+test('Bảng vật tư: xuất phiếu chặn unit rỗng / ngoài 2 phòng và phiếu trộn 2 phòng', async () => {
+  const run = async (units) => {
+    const rows = units.map((u, i) => ({ _key: 'i' + (i + 1), id: i + 1, name: 'V' + i, qty_requested: 1, unit: u }));
+    const t = await setupLinesPage(rows, { selected: rows.map((r) => r._key) });
+    await t.page.issue();
+    return t;
+  };
+  let t = await run(['']);
+  assert.ok(hasToast(t, /Phòng Cải tiến hoặc Phòng Thiết bị/));
+  assert.ok(!t.calls.some((c) => c.action === 'requests.issue'));
+  t = await run(['Xưởng Cơ khí']);
+  assert.ok(hasToast(t, /Phòng Cải tiến hoặc Phòng Thiết bị/));
+  t = await run(['P.Cải tiến', 'Phòng Thiết bị']);
+  assert.ok(hasToast(t, /Một phiếu chỉ được thuộc 1 phòng ban/));
+  assert.ok(!t.calls.some((c) => c.action === 'requests.issue'));
+  t = await run(['P.Cải tiến', 'Phòng Cải tiến']); // cùng phòng khác cách viết → hợp lệ
+  assert.ok(!hasToast(t, /phòng ban/));
+});
+
+test('Bảng vật tư: thêm vào phiếu đã xuất chặn khi khác phòng ban', async () => {
+  const mk = () => [
+    { _key: 'i1', id: 1, name: 'Cũ', qty_requested: 1, unit: 'P.TB', request_code: 'YC2026-001' },
+    { _key: 'i2', id: 2, name: 'Mới', qty_requested: 1, unit: 'Phòng Cải tiến' },
+    { _key: 'i3', id: 3, name: 'Mới2', qty_requested: 1, unit: 'Phòng Thiết bị' },
+  ];
+  let t = await setupLinesPage(mk(), { selected: ['i1', 'i2'] });
+  await t.page.issue();
+  assert.ok(hasToast(t, /Một phiếu chỉ được thuộc 1 phòng ban/));
+  assert.ok(!t.calls.some((c) => c.action === 'requests.append'));
+  t = await setupLinesPage(mk(), { selected: ['i3'] });
+  t.sandbox.prompt = () => 'YC2026-001';
+  await t.page.appendPrompt();
+  assert.ok(!hasToast(t, /Một phiếu chỉ được thuộc 1 phòng ban/), 'cùng phòng (P.TB = Phòng Thiết bị) thì cho thêm');
+  t = await setupLinesPage(mk(), { selected: ['i2'] });
+  t.sandbox.prompt = () => 'YC2026-001';
+  await t.page.appendPrompt();
+  assert.ok(hasToast(t, /Một phiếu chỉ được thuộc 1 phòng ban/), 'appendPrompt cũng chặn khác phòng');
+  assert.ok(!t.calls.some((c) => c.action === 'requests.append'));
+});
+
+test('Bảng vật tư: sửa bằng form không ghi đè tên phòng cũ; select hiện "(cũ) …"', async () => {
+  const t = await setupLinesPage([{ _key: 'i1', id: 1, name: 'A', qty_requested: 2, unit: 'P.Cải tiến', note: '' }]);
+  t.page.openEdit(t.rows[0]);
+  assert.equal(t.page.ef.d.unit, 'P.Cải tiến');
+  const opts = fromVm(t.page.efUnits());
+  assert.ok(opts.some((o) => o.value === 'P.Cải tiến' && o.label === '(cũ) P.Cải tiến'));
+  assert.ok(opts.some((o) => o.value === 'Phòng Cải tiến') && opts.some((o) => o.value === 'Phòng Thiết bị'));
+  t.page.ef.d.note = 'ghi chú mới';
+  t.page.saveEdit();
+  assert.equal(t.page.ef.open, false);
+  assert.equal(t.rows[0].data.unit, 'P.Cải tiến', 'không bị ghi đè');
+  assert.equal(t.rows[0].data.note, 'ghi chú mới');
+  const t2 = await setupLinesPage([{ _key: 'i1', id: 1, name: 'A', qty_requested: 2, unit: 'Phòng Cải tiến' }]);
+  t2.page.openEdit(t2.rows[0]);
+  assert.deepEqual(fromVm(t2.page.efUnits()).map((o) => o.label), ['Phòng Cải tiến', 'Phòng Thiết bị']);
+});
+
+test('Bảng vật tư: đổi phòng ban của dòng đã có phiếu phải xác nhận; hủy thì không lưu', async () => {
+  const mk = () => [{ _key: 'i1', id: 1, name: 'A', qty_requested: 2, unit: 'P.Cải tiến', request_code: 'YC2026-009' }];
+  let t = await setupLinesPage(mk(), { confirmResult: false });
+  t.page.openEdit(t.rows[0]);
+  t.page.ef.d.unit = 'Phòng Thiết bị';
+  t.page.saveEdit();
+  assert.equal(t.confirms.length, 1);
+  assert.match(t.confirms[0], /YC2026-009/);
+  assert.match(t.confirms[0], /người ký/);
+  assert.equal(t.rows[0].data.unit, 'P.Cải tiến');
+  t = await setupLinesPage(mk(), { confirmResult: true });
+  t.page.openEdit(t.rows[0]);
+  t.page.ef.d.unit = 'Phòng Thiết bị';
+  t.page.saveEdit();
+  assert.equal(t.rows[0].data.unit, 'Phòng Thiết bị');
+  // cùng phòng nhưng viết khác: không hỏi, không ghi
+  t = await setupLinesPage(mk(), { confirmResult: false });
+  t.page.openEdit(t.rows[0]);
+  t.page.ef.d.unit = 'Phòng Cải tiến';
+  t.page.saveEdit();
+  assert.equal(t.confirms.length, 0);
+  assert.equal(t.rows[0].data.unit, 'P.Cải tiến');
+});
+
+test('Bảng vật tư: form thêm bắt buộc phòng ban chuẩn; thêm vào phiếu cũ chép unit đã chuẩn hóa', async () => {
+  const t = await setupLinesPage([
+    { _key: 'i1', id: 1, name: 'A', unit: 'P.TB', request_code: 'YC2026-001' },
+    { _key: 'i2', id: 2, name: 'B', unit: 'Xưởng Cơ khí', request_code: 'YC2026-002' },
+  ]);
+  t.page.openForm();
+  t.page.fm.items[0].name = 'X'; t.page.fm.items[0].qty_requested = '1';
+  t.page.fm.c.unit = 'P.TB'; // tên cũ không được nhận ở form thêm
+  await t.page.formSubmit(false);
+  assert.match(t.page.fm.error, /Phòng Cải tiến hoặc Phòng Thiết bị/);
+  assert.ok(!t.calls.some((c) => c.action === 'lines.create'));
+  t.page.fm.c.unit = '';
+  t.page.fm.c.append_code = 'YC2026-001';
+  t.page.formAppendCode();
+  assert.equal(t.page.fm.c.unit, 'Phòng Thiết bị');
+  t.page.fm.c.unit = '';
+  t.page.fm.c.append_code = 'YC2026-002';
+  t.page.formAppendCode();
+  assert.equal(t.page.fm.c.unit, '');
+});
+
+// ---------- Form "Thêm vật tư": gợi ý trên dòng, lưu nháp, phím tắt, dán lưới, cảnh báo trùng ----------
+
+const DRAFT_KEY = (u) => 'ncvt.lines.draft.v1:' + u;
+const histRows = () => [
+  { _key: 'i1', id: 1, name: 'Bulong M12', uom: 'Bộ', material_group: 'C', unit_price: 5000, qty_requested: 100, qty_received: 60, request_code: 'YC2026-290', project_code: 'MS1', project_name: 'Dự án 1' },
+  { _key: 'i2', id: 2, name: 'Đai ốc', uom: 'Cái', qty_requested: 10, qty_received: 10, request_code: 'YC2026-291', project_code: 'MS1', project_name: 'Dự án 1' },
+  { _key: 'i3', id: 3, name: 'Bulong M12', uom: 'Bộ', qty_requested: 20, qty_received: 0, request_code: '', project_code: 'MS2', project_name: 'Dự án 2' },
+];
+const openedForm = async (rows, opts) => {
+  const t = await setupLinesPage(rows || histRows(), Object.assign({ load: true }, opts));
+  t.page.openForm();
+  return t;
+};
+
+test('Form thêm: gõ tên khớp lịch sử thì điền ĐVT/nhóm/đơn giá ngay trên dòng, không ghi đè ô đã có', async () => {
+  const t = await openedForm();
+  const a = t.page.fm.items[0];
+  a.name = 'bulong m12';
+  t.page.formName(a);
+  assert.equal(a.uom, 'Bộ');
+  assert.equal(a.material_group, 'C');
+  assert.equal(String(a.unit_price), '5000');
+  const b = t.page.fm.items[1];
+  Object.assign(b, { name: 'Bulong M12', uom: 'Cặp', material_group: 'D', unit_price: '7' });
+  t.page.formName(b);
+  assert.deepEqual([b.uom, b.material_group, b.unit_price], ['Cặp', 'D', '7']);
+  t.page.fm.c.material_group = 'E';
+  const c = t.page.fm.items[2];
+  c.name = 'Bulong M12';
+  t.page.formName(c);
+  assert.equal(c.uom, 'Bộ');
+  assert.equal(c.material_group, '', 'nhóm chung đã có thì không điền nhóm riêng');
+});
+
+test('Nháp: lưu theo username, khôi phục khi mở form, người khác không thấy', async () => {
+  const t = await openedForm();
+  const ls = t.sandbox.localStorage;
+  t.page.fm.c.unit = 'Phòng Thiết bị';
+  t.page.fm.c.append_code = 'YC2026-1';
+  t.page.fm.items[0].name = 'Ống thép';
+  t.page.fm.items[0].qty_requested = '3';
+  t.page.draftSave();
+  const raw = ls.getItem(DRAFT_KEY('nam'));
+  assert.ok(raw, 'phải lưu nháp theo username');
+  const saved = JSON.parse(raw);
+  assert.equal(saved.items[0].name, 'Ống thép');
+  assert.equal(saved.c.append_code, undefined);
+  assert.equal(ls.getItem(DRAFT_KEY('khac')), null);
+
+  const t2 = await setupLinesPage(histRows(), { load: true });
+  t2.sandbox.localStorage.setItem(DRAFT_KEY('nam'), JSON.stringify({
+    c: { unit: 'Kho X', project: 'MS1' }, items: [{ k: 1, name: 'Ống thép', qty_requested: '3' }, { k: 1, name: 'Van', qty_requested: '1' }],
+  }));
+  t2.page.openForm();
+  assert.equal(t2.page.fm.items[0].name, 'Ống thép');
+  assert.equal(t2.page.fm.items.length, 2);
+  assert.notEqual(t2.page.fm.items[0].k, t2.page.fm.items[1].k, 'khóa k phải duy nhất');
+  assert.equal(t2.page.fm.c.unit, '', 'đơn vị cũ không hợp lệ → rỗng');
+  assert.equal(t2.page.fm.c.project, 'MS1');
+  assert.ok(t2.calls.some((c) => c.toast === 'Đã khôi phục bản nháp'));
+
+  const t3 = await setupLinesPage(histRows(), { load: true });
+  t3.sandbox.localStorage.setItem(DRAFT_KEY('nam'), JSON.stringify({ c: {}, items: [{ name: 'Ống thép', qty_requested: '3' }] }));
+  t3.sandbox.App.user = { username: 'lan', full_name: 'Lan', role: 'user' };
+  t3.page.openForm();
+  assert.equal(t3.page.fm.items[0].name, '');
+});
+
+test('Nháp: đơn vị chuẩn được giữ; lưu thành công xóa nháp; không lưu nháp rỗng', async () => {
+  const t = await setupLinesPage(histRows(), { load: true });
+  const ls = t.sandbox.localStorage;
+  ls.setItem(DRAFT_KEY('nam'), JSON.stringify({ c: { unit: 'Phòng Cải tiến' }, items: [{ name: 'Van', qty_requested: '1' }] }));
+  t.page.openForm();
+  assert.equal(t.page.fm.c.unit, 'Phòng Cải tiến');
+  t.sandbox.Api.call = async (action) => (action === 'lines.create'
+    ? { code: null, lines: [{ id: 99, name: 'Van', qty_requested: 1 }] } : []);
+  await t.page.formSubmit(false);
+  assert.equal(t.page.fm.error, '');
+  assert.equal(t.page.fm.open, false);
+  assert.equal(ls.getItem(DRAFT_KEY('nam')), null, 'lưu xong phải xóa nháp');
+  t.page.draftSave();
+  assert.equal(ls.getItem(DRAFT_KEY('nam')), null, 'form rỗng thì không lưu nháp');
+});
+
+test('Nháp: localStorage ném lỗi không làm vỡ form', async () => {
+  const t = await setupLinesPage(histRows(), { load: true });
+  const boom = () => { throw new Error('blocked'); };
+  Object.assign(t.sandbox.localStorage, { getItem: boom, setItem: boom, removeItem: boom });
+  assert.doesNotThrow(() => t.page.openForm());
+  t.page.fm.items[0].name = 'Van';
+  assert.doesNotThrow(() => t.page.draftSave());
+  assert.equal(t.page.fm.open, true);
+});
+
+test('Nháp: init đăng ký $watch để lưu có debounce khi fm.c / fm.items đổi', async () => {
+  const watched = [];
+  const t0 = await setupLinesPage(histRows(), { load: true });
+  const page = t0.sandbox.linesPage();
+  page.$watch = (expr, cb) => watched.push([expr, cb]);
+  await page.init();
+  assert.deepEqual(watched.map((w) => w[0]).sort(), ['fm.c', 'fm.items']);
+});
+
+test('Esc / closeForm khi form đã đóng không hiện confirm; đang mở và có dữ liệu thì vẫn hỏi', async () => {
+  const t = await openedForm();
+  t.page.fm.items[0].name = 'Van';
+  t.page.fm.open = false;
+  t.page.closeForm();
+  assert.equal(t.confirms.length, 0);
+  t.page.fm.open = true;
+  t.page.closeForm();
+  assert.equal(t.confirms.length, 1);
+});
+
+test('Ctrl+Enter lưu (không xuất phiếu); bỏ qua khi isComposing / ef.open / busy / form đóng / ô dán', async () => {
+  const t = await openedForm();
+  const calls = [];
+  t.page.formSubmit = (issue) => { calls.push(issue); };
+  const ev = (o) => Object.assign({ key: 'Enter', ctrlKey: true, preventDefault() {}, target: {} }, o);
+  t.page.formKeydown(ev({}));
+  t.page.formKeydown(ev({ ctrlKey: false, metaKey: true }));
+  assert.deepEqual(calls, [false, false]);
+  t.page.formKeydown(ev({ isComposing: true }));
+  t.page.formKeydown(ev({ ctrlKey: false }));
+  t.page.formKeydown(ev({ target: { tagName: 'TEXTAREA' } }));
+  t.page.ef.open = true; t.page.formKeydown(ev({})); t.page.ef.open = false;
+  t.page.fm.busy = true; t.page.formKeydown(ev({})); t.page.fm.busy = false;
+  t.page.fm.open = false; t.page.formKeydown(ev({}));
+  assert.equal(calls.length, 2);
+});
+
+test('Dán nhiều ô vào lưới form: điền đúng hàng-cột, thêm dòng khi thiếu; 1 giá trị không bị chặn', async () => {
+  const t = await openedForm();
+  t.page.fm.items.length = 0;
+  t.page.formAddRow(2);
+  let prevented = 0;
+  const paste = (field, i, text) => t.page.formGridPaste({
+    target: { getAttribute: (a) => (a === 'data-f' ? field : String(i)) },
+    clipboardData: { getData: () => text },
+    preventDefault() { prevented++; },
+  });
+  paste('name', 1, 'Bulong M12\tBộ\t\t1.500,5\nVan\tCái\tD\t2\nTê\tCái\tE\t3');
+  assert.equal(prevented, 1);
+  const it = t.page.fm.items;
+  assert.equal(it.length, 4, 'thêm dòng khi thiếu');
+  assert.equal(it[1].name, 'Bulong M12');
+  assert.equal(it[1].uom, 'Bộ');
+  assert.equal(it[1].material_group, 'C', 'điền từ lịch sử vì ô nhóm trống');
+  assert.equal(it[1].qty_requested, '1.500,5');
+  assert.equal(it[2].name, 'Van');
+  assert.equal(it[2].material_group, 'D');
+  assert.equal(it[3].qty_requested, '3');
+  assert.equal(it[0].name, '');
+  paste('need_date', 0, '5/11/2026\t1\t2');
+  assert.equal(it[0].need_date, '2026-11-05');
+  assert.deepEqual([it[0].project, it[0].purpose], ['1', '2']);
+  paste('name', 0, 'chỉ một giá trị');
+  paste('name', 0, 'một giá trị\n');
+  assert.equal(prevented, 2, 'giá trị đơn không bị chặn');
+  assert.equal(it[0].name, '');
+});
+
+test('Cảnh báo trùng: cùng tên + cùng hạng mục + chưa nhận đủ; đã đủ / khác hạng mục thì không', async () => {
+  const t = await openedForm();
+  const f = t.page.fm;
+  f.items[0].name = 'bulong m12';
+  f.c.project = 'MS1 — Dự án 1';
+  let w = t.page.formDupes();
+  assert.equal(w.length, 1);
+  assert.match(w[0], /^Dòng 1 \(bulong m12\)/);
+  assert.match(w[0], /phiếu YC2026-290/);
+  assert.match(w[0], /còn thiếu 40/);
+  assert.ok(!/chưa có phiếu/.test(w[0]));
+
+  f.c.project = 'MS2 — Dự án 2';
+  w = t.page.formDupes();
+  assert.equal(w.length, 1);
+  assert.match(w[0], /chưa có phiếu/);
+  assert.match(w[0], /còn thiếu 20/);
+
+  f.c.project = 'MS9 — Khác';
+  assert.equal(t.page.formDupes().length, 0);
+
+  f.items[0].project = 'MS1 — Dự án 1'; // hạng mục riêng của dòng ưu tiên
+  assert.equal(t.page.formDupes().length, 1);
+
+  f.items[0].name = 'Đai ốc'; // đã nhận đủ
+  assert.equal(t.page.formDupes().length, 0);
+});
+
+test('Cảnh báo trùng: nhiều hơn 3 dòng thì gom "và N dòng nữa"; cả hai không có hạng mục thì coi là cùng', async () => {
+  const rows = [1, 2, 3, 4, 5].map((n) => ({ _key: 'i' + n, id: n, name: 'Van', qty_requested: 5, qty_received: 0, request_code: 'YC' + n }));
+  const t = await openedForm(rows);
+  t.page.fm.items[0].name = 'Van';
+  const w = t.page.formDupes();
+  assert.equal(w.length, 1);
+  assert.match(w[0], /và 2 dòng nữa/);
+});
+
+// ---------- Sửa theo review: đổi phòng ban qua ô bảng / dán / form sửa; gợi ý theo tên; nháp; phím tắt ----------
+
+const unitCell = (row, old) => ({ getField: () => 'unit', getRow: () => row, getOldValue: () => old, getValue: () => row.data.unit, setValue(v) { row.data.unit = v; } });
+const coded3 = () => [
+  { _key: 'i1', id: 1, name: 'A', qty_requested: 1, unit: 'Phòng Cải tiến', request_code: 'YC2026-001' },
+  { _key: 'i2', id: 2, name: 'B', qty_requested: 1, unit: 'Phòng Cải tiến', request_code: 'YC2026-001' },
+  { _key: 'i3', id: 3, name: 'C', qty_requested: 1, unit: 'Phòng Thiết bị', request_code: 'YC2026-002' },
+  { _key: 'i4', id: 4, name: 'D', qty_requested: 1, unit: 'Phòng Cải tiến', request_code: null },
+];
+const MIXED_RE = /Một phiếu chỉ được thuộc 1 phòng ban/;
+
+test('Ô bảng: đổi phòng dòng đã có phiếu → chặn nếu tạo phiếu trộn, hỏi confirm nếu không, hủy thì trả giá trị cũ', async () => {
+  let t = await setupLinesPage(coded3(), { confirmResult: true });
+  t.rows[0].data.unit = 'Phòng Thiết bị';
+  t.handlers.cellEdited(unitCell(t.rows[0], 'Phòng Cải tiến'));
+  assert.equal(t.rows[0].data.unit, 'Phòng Cải tiến', 'chặn: còn dòng khác của phiếu ở phòng cũ');
+  assert.ok(hasToast(t, MIXED_RE));
+  assert.equal(t.confirms.length, 0);
+  t = await setupLinesPage(coded3(), { confirmResult: false });
+  t.rows[2].data.unit = 'Phòng Cải tiến'; // phiếu 002 chỉ có 1 dòng
+  t.handlers.cellEdited(unitCell(t.rows[2], 'Phòng Thiết bị'));
+  assert.equal(t.confirms.length, 1);
+  assert.match(t.confirms[0], /YC2026-002/);
+  assert.match(t.confirms[0], /người ký/);
+  assert.equal(t.rows[2].data.unit, 'Phòng Thiết bị', 'từ chối → trả lại');
+  t = await setupLinesPage(coded3(), { confirmResult: true });
+  t.rows[2].data.unit = 'Phòng Cải tiến';
+  t.handlers.cellEdited(unitCell(t.rows[2], 'Phòng Thiết bị'));
+  assert.equal(t.rows[2].data.unit, 'Phòng Cải tiến');
+  t = await setupLinesPage(coded3(), { confirmResult: false }); // dòng chưa có phiếu: không hỏi
+  t.rows[3].data.unit = 'Phòng Thiết bị';
+  t.handlers.cellEdited(unitCell(t.rows[3], 'Phòng Cải tiến'));
+  assert.equal(t.confirms.length, 0);
+  assert.equal(t.rows[3].data.unit, 'Phòng Thiết bị');
+});
+
+test('Dán vào cột Đơn vị: gom theo phiếu, hỏi 1 lần; phiếu bị trộn thì bỏ qua ô đó và báo', async () => {
+  const paste = (t, text) => {
+    t.handlers.cellClick({}, { getRow: () => t.rows[0], getField: () => 'unit' });
+    t.handlers.dom_paste({ target: { matches: () => false }, preventDefault() {}, clipboardData: { getData: () => text } });
+  };
+  let t = await setupLinesPage(coded3(), { confirmResult: true });
+  paste(t, 'Phòng Thiết bị\nPhòng Thiết bị\nPhòng Cải tiến\nPhòng Thiết bị');
+  assert.equal(t.confirms.length, 1, 'hỏi 1 lần cho cả lần dán');
+  assert.match(t.confirms[0], /YC2026-001/);
+  assert.match(t.confirms[0], /YC2026-002/);
+  assert.deepEqual(t.rows.map((r) => r.data.unit), ['Phòng Thiết bị', 'Phòng Thiết bị', 'Phòng Cải tiến', 'Phòng Thiết bị']);
+  t = await setupLinesPage(coded3(), { confirmResult: false });
+  paste(t, 'Phòng Thiết bị\nPhòng Thiết bị\nPhòng Cải tiến\nPhòng Thiết bị');
+  assert.equal(t.confirms.length, 1);
+  assert.deepEqual(t.rows.map((r) => r.data.unit), ['Phòng Cải tiến', 'Phòng Cải tiến', 'Phòng Thiết bị', 'Phòng Thiết bị'], 'từ chối: giữ ô có phiếu, dòng chưa phiếu vẫn đổi');
+  t = await setupLinesPage(coded3(), { confirmResult: true });
+  paste(t, 'Phòng Thiết bị'); // chỉ 1/2 dòng của phiếu 001 → trộn
+  assert.equal(t.rows[0].data.unit, 'Phòng Cải tiến');
+  assert.ok(hasToast(t, MIXED_RE));
+  assert.equal(t.confirms.length, 0);
+});
+
+test('Form sửa: đổi phòng làm phiếu trộn bị chặn dù xác nhận', async () => {
+  const t = await setupLinesPage(coded3(), { confirmResult: true });
+  t.page.openEdit(t.rows[0]);
+  t.page.ef.d.unit = 'Phòng Thiết bị';
+  t.page.saveEdit();
+  assert.match(t.page.ef.error, MIXED_RE);
+  assert.equal(t.rows[0].data.unit, 'Phòng Cải tiến');
+  assert.equal(t.page.ef.open, true);
+});
+
+test('Đổi phòng: phiếu vốn đã trộn mà việc đổi không thêm phòng mới thì cho phép (hỏi confirm); phiếu đồng nhất đổi 1 dòng vẫn chặn', async () => {
+  const mixed = () => [
+    ...['a', 'b', 'c'].map((n, i) => ({ _key: 'm' + i, id: 10 + i, name: n, qty_requested: 1, unit: 'Phòng Thiết bị', request_code: 'YC2026-050' })),
+    ...['d', 'e'].map((n, i) => ({ _key: 'n' + i, id: 20 + i, name: n, qty_requested: 1, unit: 'P.Cải tiến', request_code: 'YC2026-050' })),
+  ];
+  let t = await setupLinesPage(mixed(), { confirmResult: true });
+  t.rows[3].data.unit = 'Phòng Thiết bị';
+  t.handlers.cellEdited(unitCell(t.rows[3], 'P.Cải tiến'));
+  assert.equal(t.confirms.length, 1, 'phiếu cũ trộn: hỏi confirm');
+  assert.ok(!hasToast(t, MIXED_RE));
+  assert.equal(t.rows[3].data.unit, 'Phòng Thiết bị');
+  t = await setupLinesPage(coded3(), { confirmResult: true });
+  t.page.openEdit(t.rows[0]);
+  t.page.ef.d.unit = 'Phòng Thiết bị';
+  t.page.saveEdit();
+  assert.match(t.page.ef.error, MIXED_RE, 'phiếu 2 dòng cùng phòng đổi 1 dòng vẫn chặn');
+  t = await setupLinesPage(coded3(), { confirmResult: true });
+  t.rows[0].data.unit = 'Phòng Cải tiến';
+  t.handlers.cellEdited(unitCell(t.rows[0], 'P.Cải tiến')); // cùng phòng (tên cũ)
+  assert.equal(t.confirms.length, 0);
+});
+
+test('Form thêm: đổi tên giữa chừng cập nhật ĐVT/nhóm/đơn giá do gợi ý điền, giữ ô sửa tay', async () => {
+  const rows = histRows().concat([{ _key: 'i9', id: 9, name: 'Ống thép', uom: 'Cây', unit_price: 50000, qty_requested: 1, qty_received: 1 },
+    { _key: 'i10', id: 10, name: 'Ống thép D21', uom: 'Mét', material_group: 'D', unit_price: 12000, qty_requested: 1, qty_received: 1 }]);
+  const t = await openedForm(rows);
+  const a = t.page.fm.items[0];
+  a.name = 'Ống thép'; t.page.formName(a);
+  assert.deepEqual([a.uom, String(a.unit_price)], ['Cây', '50000']);
+  a.name = 'Ống thép D21'; t.page.formName(a);
+  assert.deepEqual([a.uom, a.material_group, String(a.unit_price)], ['Mét', 'D', '12000']);
+  a.name = 'Tên không có'; t.page.formName(a);
+  assert.deepEqual([a.uom, a.material_group, a.unit_price], ['', '', ''], 'tên mới không có lịch sử → xóa phần tự điền');
+  const b = t.page.fm.items[1];
+  b.name = 'Ống thép'; t.page.formName(b);
+  b.uom = 'Bó'; // sửa tay
+  b.name = 'Ống thép D21'; t.page.formName(b);
+  assert.equal(b.uom, 'Bó');
+  assert.equal(String(b.unit_price), '12000');
+  const html = fs.readFileSync(path.join(DOCS, 'lines.html'), 'utf8');
+  assert.ok(!/@input="formName/.test(html), 'không điền theo từng phím gõ');
+});
+
+test('Nháp: khôi phục đặt lại ngày yêu cầu = hôm nay; ngày cần có cũ hơn hôm nay bị bỏ', async () => {
+  const mk = async (need) => {
+    const t = await setupLinesPage(histRows(), { load: true });
+    t.sandbox.localStorage.setItem(DRAFT_KEY('nam'), JSON.stringify({
+      c: { unit: 'Phòng Cải tiến', request_date: '2026-01-01', need_date: need }, items: [{ name: 'Van', qty_requested: '1', need_date: need }],
+    }));
+    t.page.openForm();
+    return t;
+  };
+  let t = await mk('2026-01-05');
+  assert.equal(t.page.fm.c.request_date, '2026-10-26');
+  assert.equal(t.page.fm.c.need_date, '');
+  assert.equal(t.page.fm.items[0].need_date, '');
+  t = await mk('2026-12-05');
+  assert.equal(t.page.fm.c.request_date, '2026-10-26');
+  assert.equal(t.page.fm.c.need_date, '2026-12-05');
+  assert.equal(t.page.fm.items[0].need_date, '2026-12-05');
+});
+
+test('Ô Đơn vị trên bảng: giá trị cũ hợp lệ + bấm ra không chọn gì thì không báo lỗi; giá trị cũ không hợp lệ thì vẫn báo', async () => {
+  const t = await setupLinesPage([{ _key: 'i1', id: 1, name: 'A', qty_requested: 1, unit: 'P.TB' }, { _key: 'i2', id: 2, name: 'B', qty_requested: 1, unit: 'Xưởng' }]);
+  t.rows[0].data.unit = null;
+  t.handlers.cellEdited(unitCell(t.rows[0], 'P.TB'));
+  assert.equal(t.rows[0].data.unit, 'P.TB');
+  assert.ok(!hasToast(t, /chỉ nhận/));
+  t.rows[1].data.unit = null;
+  t.handlers.cellEdited(unitCell(t.rows[1], 'Xưởng'));
+  assert.ok(hasToast(t, /chỉ nhận/));
+});
+
+test('lines.html: select #ef-unit có option "(cũ)" cố định trước x-model; ô tên/SL không chạy Enter khi Ctrl/Cmd', async () => {
+  const html = fs.readFileSync(path.join(DOCS, 'lines.html'), 'utf8');
+  const sel = html.match(/<select id="ef-unit"[\s\S]*?<\/select>/)[0];
+  assert.match(sel, /<option[^>]*:value="efLegacy\(\) \? ef\.legacyUnit : ''"/);
+  assert.ok(!/x-for="u in efUnits\(\)"/.test(sel));
+  // Mô phỏng: tập value các option không được trùng (trừ value rỗng) với mọi trạng thái legacyUnit
+  const t0 = await setupLinesPage([]);
+  const units = ['Phòng Cải tiến', 'Phòng Thiết bị'];
+  for (const legacy of ['', 'P.TB', 'Phòng Thiết bị', 'Phòng Cải tiến']) {
+    t0.page.ef.legacyUnit = legacy;
+    const vals = [];
+    for (const m of sel.matchAll(/<option([^>]*)>/g)) {
+      const attrs = m[1];
+      if (/:value="u"/.test(attrs)) { vals.push(...units); continue; }
+      const q = attrs.match(/:value="efLegacy\(\) \? ef\.legacyUnit : ''"/);
+      if (q) { vals.push(t0.page.efLegacy() ? legacy : ''); continue; }
+      const v = attrs.match(/\bvalue="([^"]*)"/);
+      vals.push(v ? v[1] : '');
+    }
+    const nonEmpty = vals.filter((v) => v !== '');
+    assert.equal(new Set(nonEmpty).size, nonEmpty.length, 'option trùng value với legacy=' + JSON.stringify(legacy) + ': ' + vals);
+  }
+  assert.match(sel, /\$nextTick/);
+  const t = await openedForm();
+  t.page.formEnter(0, { ctrlKey: true });
+  t.page.formEnter(0, { metaKey: true });
+  assert.equal(t.page.fm.items.length, 3, 'Ctrl/Cmd+Enter không thêm dòng');
+  t.page.formEnter(2, {});
+  assert.equal(t.page.fm.items.length, 4);
+  assert.match(html, /formEnter\(i, \$event\)/);
 });

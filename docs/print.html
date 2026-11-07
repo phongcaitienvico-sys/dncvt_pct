@@ -6,14 +6,14 @@
   <title>In phiếu</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:ital,wght@0,400;0,600;0,700;1,400&display=swap&subset=vietnamese" rel="stylesheet">
-  <link rel="stylesheet" href="css/app.css?v=mw6mi5op">
+  <link rel="stylesheet" href="css/app.css?v=mw6vi34q">
   <link rel="stylesheet" href="css/print.css?v=20261023-layout3">
   <script src="https://cdn.jsdelivr.net/npm/nunjucks@3.2.4/browser/nunjucks.min.js"></script>
-  <script src="js/config.js?v=mw6mi5op"></script>
-  <script src="js/logic.js?v=mw6mi5op"></script>
-  <script src="js/vendor/supabase.min.js?v=mw6mi5op"></script>
-  <script src="js/app.js?v=mw6mi5op"></script>
-  <script src="js/print_mapping.js?v=mw6mi5op"></script>
+  <script src="js/config.js?v=mw6vi34q"></script>
+  <script src="js/logic.js?v=mw6vi34q"></script>
+  <script src="js/vendor/supabase.min.js?v=mw6vi34q"></script>
+  <script src="js/app.js?v=mw6vi34q"></script>
+  <script src="js/print_mapping.js?v=mw6vi34q"></script>
 </head>
 <body class="print">
   <div class="print-toolbar">
@@ -134,57 +134,13 @@
         });
         return [top, bottom];
       };
-      // Khối chữ ký: bộ riêng theo đơn vị đề nghị (signature_sets) hoặc bộ mặc định; name_from:'requester' → tên người yêu cầu
-      // Tên gọi tắt → họ tên đầy đủ (name_aliases); nhiều người cách nhau dấu ; thì đổi từng người
+      // Khối chữ ký: logic ở Logic.signaturesFor (bộ riêng theo phòng ban hoặc bộ mặc định; người ký sửa trong Quản trị → Danh mục → Người ký)
       const aliasMap = {};
       Object.keys(M.name_aliases || {}).forEach((k) => { aliasMap[Logic.fold(k)] = M.name_aliases[k]; });
-      const fullName = (v) => String(v || '').split(/\s*;\s*/).filter(Boolean).map((n) => aliasMap[Logic.fold(n)] || n).filter((n, i, arr) => arr.findIndex((x) => Logic.fold(x) === Logic.fold(n)) === i).join('; '); // bỏ tên trùng (vd. "Hiếu" + "Nguyễn Văn Hiếu")
-      // Người ký sửa trong Quản trị → Danh mục → Người ký phiếu đề nghị; chưa có danh mục đó thì dùng bộ trong print_mapping.js
-      const signerSlot = (r, fallbackPos) => {
-        const t = Logic.fold(r.title || '').trim();
-        if (t.includes('lap phieu')) return 1;
-        if (t.includes('xem xet')) return 2;
-        if (t.startsWith('t.p') || t.includes('truong phong') || t.includes('tp ')) return 3;
-        if (t.includes('giam doc')) return 4;
-        const p = Number(r.position);
-        return p >= 1 ? p : fallbackPos;
-      };
-      const matchUnitKey = (u, k) => {
-        if (!u || !k) return false;
-        if (u.includes(k) || k.includes(u)) return true;
-        const isTB = (s) => /\bp\.?\s*tb\b|\bthiet bi\b/.test(s);
-        const isCT = (s) => /\bp\.?\s*ct\b|\bcai tien\b/.test(s);
-        return (isTB(u) && isTB(k)) || (isCT(u) && isCT(k));
-      };
-      const signerSets = (() => {
-        const rows = (boot.catalogs.signers || []).filter((r) => r.title);
-        if (!rows.length) return null;
-        const sets = new Map();
-        rows.slice().sort((a, b) => (Number(a.position) || 0) - (Number(b.position) || 0) || a.id - b.id).forEach((r) => {
-          const key = Logic.fold(r.unit_contains || '').trim();
-          if (!sets.has(key)) sets.set(key, []);
-          const arr = sets.get(key);
-          arr.push({ pos: signerSlot(r, arr.length + 1), title: r.title, name: r.name || '', name_from: r.name ? null : 'requester' });
-        });
-        return sets;
-      })();
-      const signaturesFor = (unit, requester) => {
-        const u = Logic.fold(unit || '').trim();
-        const set = (m.signature_sets || []).find((x) => matchUnitKey(u, Logic.fold(x.unit_contains || '').trim()));
-        const base = (set && set.signatures) || m.signatures || [];
-        const byPos = new Map();
-        base.forEach((s, i) => byPos.set(i + 1, Object.assign({}, s)));
-        if (signerSets) {
-          // Áp bộ mặc định (unit_contains trống) trước, rồi ghi đè các vị trí riêng của phòng ban khớp
-          (signerSets.get('') || []).forEach((s) => byPos.set(s.pos, Object.assign({}, s)));
-          const key = Array.from(signerSets.keys()).find((k) => k && matchUnitKey(u, k));
-          if (key !== undefined) (signerSets.get(key) || []).forEach((s) => byPos.set(s.pos, Object.assign({}, s)));
-        }
-        const list = Array.from(byPos.keys()).sort((a, b) => a - b).map((pos) => byPos.get(pos));
-        return list.map((s) => Object.assign({}, s, {
-          name: s.name_from === 'requester' ? fullName(requester) : (s.name || ''),
-        }));
-      };
+      const fullName = (v) => String(v || '').split(/\s*;\s*/).filter(Boolean).map((n) => aliasMap[Logic.fold(n)] || n).filter((n, i, arr) => arr.findIndex((x) => Logic.fold(x) === Logic.fold(n)) === i).join('; '); // dùng cho giấy đề nghị thanh toán
+      const signaturesFor = (unit, requester) => Logic.signaturesFor(unit, requester, { mapping: m, signers: boot.catalogs.signers, aliases: M.name_aliases });
+      // Gộp các đơn vị của các dòng theo tên chuẩn (P.Cải tiến + Phòng Cải tiến → 1); tên không chuẩn hóa được giữ nguyên
+      const joinUnits = (lines) => Array.from(new Set((lines || []).map((l) => String(l.unit || '').trim()).filter(Boolean).map((u) => Logic.normalizeUnit(u) || u))).join('; ');
       const withStt = (lines) => lines.map((l, i) => Object.assign({}, l, {
         _stt: i + 1, material_group: Logic.normalizeMaterialGroup(l.material_group, boot.catalogs.material_groups), amount: l.unit_price === null || l.unit_price === undefined ? null : Logic.amount(l),
       }));
@@ -197,7 +153,7 @@
             const saved = x.request.header_json || {};
             // Lấy ưu tiên từ các dòng vật tư hiện tại để khi sửa bổ sung Đơn vị đề xuất / Người yêu cầu / Hạng mục sau khi xuất phiếu thì in lại cập nhật ngay
             const header = Object.assign({}, saved, {
-              unit: joinLineField(x.lines, 'unit') || saved.unit || '',
+              unit: joinUnits(x.lines) || saved.unit || '',
               project_code: joinLineField(x.lines, 'project_code') || saved.project_code || '',
               project_name: joinLineField(x.lines, 'project_name') || saved.project_name || '',
               delivery_location: joinLineField(x.lines, 'delivery_location') || saved.delivery_location || '',
@@ -235,7 +191,7 @@
             const pCode = joinLineField(x.lines, 'project_code') || h.project_code || '';
             const pName = joinLineField(x.lines, 'project_name') || h.project_name || '';
             return {
-              _stt: i + 1, code: x.request.code, unit: joinLineField(x.lines, 'unit') || h.unit || '', line_count: x.lines.length,
+              _stt: i + 1, code: x.request.code, unit: joinUnits(x.lines) || h.unit || '', line_count: x.lines.length,
               project: [pCode, pName].filter(Boolean).join(' — '),
               issued_date: String(x.request.issued_at || '').slice(0, 10),
             };

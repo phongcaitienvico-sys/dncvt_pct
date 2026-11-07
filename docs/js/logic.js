@@ -138,6 +138,72 @@
     return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase();
   };
 
+  /** Hai phòng ban đề xuất hợp lệ (quyết định bộ người ký trên phiếu). */
+  L.UNITS = ['Phòng Cải tiến', 'Phòng Thiết bị'];
+
+  /** Tên phòng ban (kể cả tên viết tắt cũ: P.Cải tiến, P.CT, P.TB, P. Thiết bị…) → tên chuẩn; không nhận ra → null. */
+  L.normalizeUnit = function (v) {
+    const s = L.fold(v).replace(/\s+/g, ' ').trim();
+    if (/^(phong|p\.?)\s*(cai tien|ct)$/.test(s)) return L.UNITS[0];
+    if (/^(phong|p\.?)\s*(thiet bi|tb)$/.test(s)) return L.UNITS[1];
+    return null;
+  };
+
+  /**
+   * Khối chữ ký phiếu đề nghị theo Đơn vị đề xuất. ctx = { mapping: PRINT_MAPPING.phieu_de_nghi, signers: danh mục Người ký, aliases: name_aliases }.
+   * Bộ mặc định (unit_contains trống) làm nền, bộ của phòng khớp chỉ ghi đè các vị trí nó khai báo; name_from:'requester' → tên người yêu cầu.
+   * Danh mục Người ký rỗng thì dùng bộ trong mapping.
+   */
+  L.signaturesFor = function (unit, requester, ctx) {
+    ctx = ctx || {};
+    const m = ctx.mapping || {};
+    const aliasMap = {};
+    Object.keys(ctx.aliases || {}).forEach((k) => { aliasMap[L.fold(k)] = ctx.aliases[k]; });
+    const fullName = (v) => String(v || '').split(/\s*;\s*/).filter(Boolean).map((n) => aliasMap[L.fold(n)] || n)
+      .filter((n, i, arr) => arr.findIndex((x) => L.fold(x) === L.fold(n)) === i).join('; ');
+    const signerSlot = (r, fallbackPos) => {
+      const t = L.fold(r.title || '').trim();
+      if (t.includes('lap phieu')) return 1;
+      if (t.includes('xem xet')) return 2;
+      if (t.startsWith('t.p') || t.includes('truong phong') || t.includes('tp ')) return 3;
+      if (t.includes('giam doc')) return 4;
+      const p = Number(r.position);
+      return p >= 1 ? p : fallbackPos;
+    };
+    const matchUnitKey = (u, k) => {
+      if (!u || !k) return false;
+      if (u.includes(k) || k.includes(u)) return true;
+      const isTB = (s) => /\bp\.?\s*tb\b|\bthiet bi\b/.test(s);
+      const isCT = (s) => /\bp\.?\s*ct\b|\bcai tien\b/.test(s);
+      return (isTB(u) && isTB(k)) || (isCT(u) && isCT(k));
+    };
+    let signerSets = null;
+    const rows = (ctx.signers || []).filter((r) => r.title);
+    if (rows.length) {
+      signerSets = new Map();
+      rows.slice().sort((a, b) => (Number(a.position) || 0) - (Number(b.position) || 0) || a.id - b.id).forEach((r) => {
+        const key = L.fold(r.unit_contains || '').trim();
+        if (!signerSets.has(key)) signerSets.set(key, []);
+        const arr = signerSets.get(key);
+        arr.push({ pos: signerSlot(r, arr.length + 1), title: r.title, name: r.name || '', name_from: r.name ? null : 'requester' });
+      });
+    }
+    const u = L.fold(unit || '').trim();
+    const set = (m.signature_sets || []).find((x) => matchUnitKey(u, L.fold(x.unit_contains || '').trim()));
+    const base = (set && set.signatures) || m.signatures || [];
+    const byPos = new Map();
+    base.forEach((s, i) => byPos.set(i + 1, Object.assign({}, s)));
+    if (signerSets) {
+      (signerSets.get('') || []).forEach((s) => byPos.set(s.pos, Object.assign({}, s)));
+      const key = Array.from(signerSets.keys()).find((k) => k && matchUnitKey(u, k));
+      if (key !== undefined) (signerSets.get(key) || []).forEach((s) => byPos.set(s.pos, Object.assign({}, s)));
+    }
+    const list = Array.from(byPos.keys()).sort((a, b) => a - b).map((pos) => byPos.get(pos));
+    return list.map((s) => Object.assign({}, s, {
+      name: s.name_from === 'requester' ? fullName(requester) : (s.name || ''),
+    }));
+  };
+
   /** Chuẩn hóa giá trị Nhóm VT (gõ chữ thường, chọn nhãn "C — Giải thích" hoặc dán tên giải thích) về đúng mã nhóm. */
   L.normalizeMaterialGroup = function (raw, groups) {
     if (raw === null || raw === undefined) return null;

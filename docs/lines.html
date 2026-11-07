@@ -7,14 +7,14 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;600;700&display=swap&subset=vietnamese" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/tabulator-tables@6.3.1/dist/css/tabulator_simple.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="css/app.css?v=mw6mi5op">
+  <link rel="stylesheet" href="css/app.css?v=mw6vi34q">
   <script src="https://cdn.jsdelivr.net/npm/tabulator-tables@6.3.1/dist/js/tabulator.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script src="js/config.js?v=mw6mi5op"></script>
-  <script src="js/logic.js?v=mw6mi5op"></script>
-  <script src="js/vendor/supabase.min.js?v=mw6mi5op"></script>
-  <script src="js/app.js?v=mw6mi5op"></script>
-  <script src="js/lines.js?v=mw6mi5op"></script>
+  <script src="js/config.js?v=mw6vi34q"></script>
+  <script src="js/logic.js?v=mw6vi34q"></script>
+  <script src="js/vendor/supabase.min.js?v=mw6vi34q"></script>
+  <script src="js/app.js?v=mw6vi34q"></script>
+  <script src="js/lines.js?v=mw6vi34q"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js"></script>
   <style>
     #grid { background: #fff; }
@@ -91,7 +91,7 @@
     </div>
 
     <!-- Form thêm nhiều vật tư -->
-    <div class="modal-back" x-show="fm.open" x-cloak @keydown.escape.window="closeForm()">
+    <div class="modal-back" x-show="fm.open" x-cloak @keydown.escape.window="closeForm()" @keydown.window="formKeydown($event)">
       <div class="modal" role="dialog" aria-modal="true" aria-label="Thêm vật tư">
         <div class="modal-head">
           <b>Thêm vật tư</b>
@@ -107,7 +107,7 @@
                 ← Thêm vào phiếu vừa xuất <b x-text="fm.lastCode"></b></button>
               <span x-show="fm.c.append_code" style="color:var(--warn);font-weight:600">Các vật tư dưới đây sẽ được thêm vào phiếu <span x-text="fm.c.append_code"></span>, không cấp số mới.</span>
             </div>
-            <label>Đơn vị đề xuất * <input id="fm-unit" list="dl-unit" x-model="fm.c.unit" required placeholder="Chọn phòng ban / đơn vị"></label>
+            <label>Đơn vị đề xuất * <select id="fm-unit" x-model="fm.c.unit" required><option value="">— Chọn phòng ban —</option><template x-for="u in dl.units" :key="u"><option :value="u" x-text="u"></option></template></select></label>
             <label class="wide">Hạng mục (mã — tên) <input list="dl-project" x-model="fm.c.project" @change="formProject()" placeholder="Gõ để tìm, vd. MS332"></label>
             <label>Địa điểm giao <input list="dl-loc" x-model="fm.c.delivery_location"></label>
             <label>Người yêu cầu <input list="dl-req" x-model="fm.c.requester"></label>
@@ -121,7 +121,7 @@
           <div class="muted small" style="margin:4px 0 8px">Thông tin trên áp cho mọi dòng. Ở bảng bên dưới, ô nào để trống sẽ lấy giá trị chung; điền riêng thì dòng đó dùng giá trị riêng (cuộn ngang để xem đủ cột).</div>
 
           <div style="overflow:auto">
-          <table class="simple items-form">
+          <table class="simple items-form" @paste="formGridPaste($event)">
             <thead><tr>
               <th style="width:30px">#</th><th style="min-width:230px">Tên vật tư *</th><th style="width:80px">ĐVT</th><th style="width:120px">Nhóm VT</th>
               <th style="width:100px">SL yêu cầu *</th><th style="width:90px">SL tồn kho</th><th style="width:130px">Ngày cần có</th>
@@ -132,18 +132,18 @@
               <template x-for="(it, i) in fm.items" :key="it.k">
                 <tr>
                   <td x-text="i + 1"></td>
-                  <td><input list="dl-name" x-model="it.name" @change="formName(it)" :id="'fm-name-' + i" @keydown.enter.prevent="formEnter(i)" placeholder="Tên vật tư"></td>
-                  <td><input list="dl-uom" x-model="it.uom"></td>
-                  <td><input list="dl-group" x-model="it.material_group" :placeholder="fm.c.material_group"></td>
-                  <td><input x-model="it.qty_requested" inputmode="decimal" @keydown.enter.prevent="formEnter(i)"></td>
-                  <td><input x-model="it.qty_on_hand" inputmode="decimal"></td>
-                  <td><input type="date" x-model="it.need_date"></td>
-                  <td><input list="dl-project" x-model="it.project" :placeholder="fm.c.project"></td>
-                  <td><input list="dl-purpose" x-model="it.purpose" :placeholder="fm.c.purpose"></td>
-                  <td><input list="dl-equip" x-model="it.equipment_name" :placeholder="fm.c.equipment_name"></td>
-                  <td><input list="dl-sup" x-model="it.supplier" :placeholder="fm.c.supplier"></td>
-                  <td><input x-model="it.unit_price" inputmode="decimal"></td>
-                  <td><input x-model="it.note"></td>
+                  <td><input data-f="name" :data-i="i" list="dl-name" x-model="it.name" @change="formName(it)" :id="'fm-name-' + i" @keydown.enter.prevent="formEnter(i, $event)" placeholder="Tên vật tư"></td>
+                  <td><input data-f="uom" :data-i="i" list="dl-uom" x-model="it.uom"></td>
+                  <td><input data-f="material_group" :data-i="i" list="dl-group" x-model="it.material_group" :placeholder="fm.c.material_group"></td>
+                  <td><input data-f="qty_requested" :data-i="i" x-model="it.qty_requested" inputmode="decimal" @keydown.enter.prevent="formEnter(i, $event)"></td>
+                  <td><input data-f="qty_on_hand" :data-i="i" x-model="it.qty_on_hand" inputmode="decimal"></td>
+                  <td><input data-f="need_date" :data-i="i" type="date" x-model="it.need_date"></td>
+                  <td><input data-f="project" :data-i="i" list="dl-project" x-model="it.project" :placeholder="fm.c.project"></td>
+                  <td><input data-f="purpose" :data-i="i" list="dl-purpose" x-model="it.purpose" :placeholder="fm.c.purpose"></td>
+                  <td><input data-f="equipment_name" :data-i="i" list="dl-equip" x-model="it.equipment_name" :placeholder="fm.c.equipment_name"></td>
+                  <td><input data-f="supplier" :data-i="i" list="dl-sup" x-model="it.supplier" :placeholder="fm.c.supplier"></td>
+                  <td><input data-f="unit_price" :data-i="i" x-model="it.unit_price" inputmode="decimal"></td>
+                  <td><input data-f="note" :data-i="i" x-model="it.note"></td>
                   <td><button type="button" class="link danger" @click="formRemove(i)" title="Xóa dòng">✕</button></td>
                 </tr>
               </template>
@@ -160,6 +160,7 @@
             <textarea rows="5" style="width:100%;margin:6px 0" x-model="fm.paste" placeholder="Bulong M12x50&#9;Bộ&#9;100"></textarea>
             <button type="button" @click="formPaste()">Thêm vào danh sách</button>
           </div>
+          <template x-for="(w, wi) in formDupes()" :key="wi"><div class="small" style="color:var(--warn)" x-text="w"></div></template>
           <div class="error-text" x-text="fm.error"></div>
         </div>
         <div class="modal-foot">
@@ -190,7 +191,7 @@
             <label>SL tồn kho <input x-model="ef.d.qty_on_hand" inputmode="decimal"></label>
             <label>Ngày cần có <input type="date" x-model="ef.d.need_date"></label>
             <label>Đơn giá <input x-model="ef.d.unit_price" inputmode="decimal"></label>
-            <label>Đơn vị đề xuất * <input id="ef-unit" list="dl-unit" x-model="ef.d.unit" required placeholder="Chọn phòng ban / đơn vị"></label>
+            <label>Đơn vị đề xuất * <select id="ef-unit" x-model="ef.d.unit" x-effect="ef.legacyUnit; ef.d.unit; $nextTick(function () { $el.value = ef.d.unit; })" required><option value="">— Chọn phòng ban —</option><option :value="efLegacy() ? ef.legacyUnit : ''" :hidden="!efLegacy()" :disabled="!efLegacy()" x-text="efLegacy() ? '(cũ) ' + ef.legacyUnit : ''"></option><template x-for="u in dl.units" :key="u"><option :value="u" x-text="u"></option></template></select></label>
             <label class="wide">Hạng mục (mã — tên) <input list="dl-project" x-model="ef.d.project"></label>
             <label>Địa điểm giao <input list="dl-loc" x-model="ef.d.delivery_location"></label>
             <label class="wide">Mục đích sử dụng <input list="dl-purpose" x-model="ef.d.purpose"></label>
@@ -210,7 +211,6 @@
         </form>
       </div>
     </div>
-    <datalist id="dl-unit"><template x-for="u in dl.units" :key="u"><option :value="u"></option></template></datalist>
     <datalist id="dl-project"><template x-for="u in dl.projects" :key="u"><option :value="u"></option></template></datalist>
     <datalist id="dl-uom"><template x-for="u in dl.uoms" :key="u"><option :value="u"></option></template></datalist>
     <datalist id="dl-loc"><template x-for="u in dl.loc" :key="u"><option :value="u"></option></template></datalist>

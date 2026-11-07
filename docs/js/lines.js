@@ -38,6 +38,13 @@ function linesPage() {
     purpose: '', equipment_name: '', supplier: '', unit_price: '', note: '',
   });
   let formProjects = new Map();
+  let draftTimer = null;
+  const DRAFT_PREFIX = 'ncvt.lines.draft.v1:';
+  // Thứ tự cột của lưới form (khớp data-f trong lines.html) — dùng cho dán nhiều ô
+  const FORM_FIELDS = ['name', 'uom', 'material_group', 'qty_requested', 'qty_on_hand', 'need_date', 'project', 'purpose',
+    'equipment_name', 'supplier', 'unit_price', 'note'];
+  const draftKey = () => (App.user && App.user.username ? DRAFT_PREFIX + App.user.username : null);
+  const itemHasContent = (i) => ['name', 'qty_requested', 'uom', 'note'].some((f) => String(i[f] === undefined || i[f] === null ? '' : i[f]).trim());
   let ui = null; // proxy Alpine (gán trong init) — ghi qua đây thì giao diện mới cập nhật
   let projectByCode = {};
   let projectByName = {};
@@ -66,11 +73,13 @@ function linesPage() {
     if (historyCache) return historyCache;
     const rows = table ? table.getData() : [];
     const byName = {};
+    const rowsByName = {}; // fold(tên) → các dòng bảng cùng tên (để cảnh báo trùng, không quét toàn bảng mỗi lần gõ)
     const sets = { name: new Set(), purpose: new Set(), equipment_name: new Set(), delivery_location: new Set(), requester: new Set(), supplier: new Set() };
     rows.slice().sort((a, b) => (a.id || 1e12) - (b.id || 1e12)).forEach((r) => {
       Object.keys(sets).forEach((k) => { if (r[k]) sets[k].add(r[k]); });
       if (!r.name) return;
       const k = Logic.fold(r.name);
+      (rowsByName[k] || (rowsByName[k] = [])).push(r);
       const h = byName[k] || (byName[k] = {});
       if (r.uom) h.uom = r.uom;
       if (r.material_group) h.material_group = r.material_group;
@@ -80,7 +89,7 @@ function linesPage() {
     App.boot.catalogs.suppliers.forEach((s) => sets.supplier.add(s.code || s.name));
     const lists = {};
     Object.keys(sets).forEach((k) => { lists[k] = Array.from(sets[k]).sort((a, b) => a.localeCompare(b, 'vi')); });
-    historyCache = { byName, lists };
+    historyCache = { byName, lists, rowsByName };
     return historyCache;
   }
 
@@ -146,7 +155,9 @@ function linesPage() {
       { field: 'request_code', title: 'Số phiếu', width: 112, frozen: true, cssClass: 'code col-code' },
       { field: '_status', title: 'Trạng thái', width: 122, sorter: (a, b, ra, rb) => ra.getData()._st.label.localeCompare(rb.getData()._st.label),
         formatter: (cell) => { const s = cell.getRow().getData()._st; return `<span class="st ${s.color}">${App.esc(s.label)}</span>`; } },
-      { field: 'unit', title: 'Đơn vị đề xuất', width: 140, editor: 'list', editorParams: listEditor(cat.units.map((u) => u.name), true) },
+      { field: 'unit', title: 'Đơn vị đề xuất', width: 140, editor: 'list',
+        editorParams: listEditor(Logic.UNITS, false, { allowEmpty: false, clearable: false }),
+        mutatorEdit: (v) => Logic.normalizeUnit(v) || null }, // chỉ 2 phòng ban; giá trị lạ → null (onCellEdited giữ giá trị cũ)
       { field: 'material_group', title: 'Nhóm VT', width: 95, editor: 'list',
         editorParams: listEditor(cat.material_groups.map((g) => ({ value: g.name, label: g.description ? g.name + ' — ' + g.description : g.name })), true),
         mutatorEdit: (v) => Logic.normalizeMaterialGroup(v, cat.material_groups),
@@ -283,6 +294,23 @@ function linesPage() {
     const row = cell.getRow();
     const d = row.getData();
     const changes = {};
+    if (field === 'unit' && !d.unit) {
+      // gõ/chọn ngoài 2 phòng ban → không xóa trắng ô, trả về giá trị cũ
+      const old = cell.getOldValue ? cell.getOldValue() : null;
+      safeUpdate(row, { unit: old === undefined ? null : old });
+      // bấm vào rồi bấm ra không chọn gì, tên cũ vẫn hợp lệ → im lặng giữ nguyên
+      if (!(old && Logic.normalizeUnit(old))) App.toast('Đơn vị đề xuất chỉ nhận Phòng Cải tiến hoặc Phòng Thiết bị.', 'error');
+      return;
+    }
+    if (field === 'unit' && d.request_code) {
+      const old = cell.getOldValue ? cell.getOldValue() : null;
+      const chk = unitMoveCheck([{ key: d._key, code: d.request_code, from: old, to: d.unit }]);
+      if (chk.mixed.length || (chk.codes.length && !unitMoveAsk(chk.codes))) {
+        safeUpdate(row, { unit: old === undefined ? null : old });
+        if (chk.mixed.length) App.toast(MIXED_UNIT_MSG, 'error');
+        return;
+      }
+    }
     if (field === 'name' && d.name) {
       const h = history().byName[Logic.fold(d.name)];
       if (h) ['uom', 'material_group', 'unit_price'].forEach((f) => { if ((d[f] === null || d[f] === undefined || d[f] === '') && h[f]) changes[f] = h[f]; });
@@ -364,7 +392,9 @@ function linesPage() {
       if (ci >= 0 && ri >= 0) { startCol = ci; startRow = ri; }
     }
     let skipped = 0;
+    let badUnit = 0;
     let created = 0;
+    const plan = [];
     data.forEach((vals, i) => {
       let row = rows[startRow + i];
       if (!row) {
@@ -380,9 +410,29 @@ function linesPage() {
         if (!field) return;
         if (d.request_code && !isAdmin() && LOCKED_AFTER_ISSUE.includes(field)) { skipped++; return; }
         const v = raw.trim();
+        if (field === 'unit') {
+          const nu = Logic.normalizeUnit(v);
+          if (nu) changes.unit = nu; else badUnit++;
+          return;
+        }
         changes[field] = NUM_FIELDS.includes(field) ? Logic.parseNum(v)
           : DATE_FIELDS.includes(field) ? Logic.parseDate(v) : field === 'material_group' ? Logic.normalizeMaterialGroup(v, App.boot.catalogs.material_groups) : (v || null);
       });
+      if (Object.keys(changes).length) plan.push({ row, d, changes });
+    });
+    // đổi phòng ban của dòng đã có phiếu: kiểm gom theo phiếu, chỉ hỏi 1 lần cho cả lần dán
+    let blockedUnit = 0;
+    const moves = plan.filter((p) => p.changes.unit && p.d.request_code).map((p) => ({ key: p.d._key, code: p.d.request_code, from: p.d.unit, to: p.changes.unit }));
+    if (moves.length) {
+      const chk = unitMoveCheck(moves);
+      let drop = chk.mixed;
+      if (chk.codes.length && !unitMoveAsk(chk.codes)) drop = drop.concat(chk.codes);
+      if (drop.length) {
+        plan.forEach((p) => { if (p.changes.unit && drop.includes(p.d.request_code)) { delete p.changes.unit; blockedUnit++; } });
+      }
+      if (chk.mixed.length) App.toast(MIXED_UNIT_MSG, 'error');
+    }
+    plan.forEach(({ row, d, changes }) => {
       const fields = Object.keys(changes);
       if (!fields.length) return;
       safeUpdate(row, Object.assign(changes, derive(Object.assign({}, d, changes))));
@@ -392,7 +442,9 @@ function linesPage() {
     scheduleSave(100);
     updateInfo();
     App.toast('Đã dán ' + data.length + ' dòng' + (created ? ' (thêm mới ' + created + ')' : '') +
-      (skipped ? '; bỏ qua ' + skipped + ' ô bị khóa vì đã có số phiếu' : '') + '. Đang lưu…', skipped ? 'error' : 'ok');
+      (skipped ? '; bỏ qua ' + skipped + ' ô bị khóa vì đã có số phiếu' : '') +
+      (badUnit ? '; bỏ qua ' + badUnit + ' ô Đơn vị không phải Phòng Cải tiến / Phòng Thiết bị' : '') +
+      (blockedUnit ? '; bỏ qua ' + blockedUnit + ' ô Đơn vị của dòng đã có phiếu (bị chặn hoặc không xác nhận đổi phòng)' : '') + '. Đang lưu…', skipped || badUnit || blockedUnit ? 'error' : 'ok');
   }
 
   function defaultsForNewRow() {
@@ -411,7 +463,7 @@ function linesPage() {
     if (f.mine && d.created_by !== App.user.username) return false;
     if (f.code && !Logic.fold(d.request_code).includes(Logic.fold(f.code))) return false;
     if (f.project && (d.project_code || d.project_name) !== f.project && d.project_name !== f.project) return false;
-    if (f.unit && d.unit !== f.unit) return false;
+    if (f.unit && (Logic.normalizeUnit(d.unit) || d.unit) !== f.unit) return false;
     if (f.week && d.week !== f.week) return false;
     if (f.month && d.month !== f.month) return false;
     if (f.status && !Logic.matchStatus(d._st, f.status)) return false;
@@ -429,14 +481,14 @@ function linesPage() {
     const months = new Set();
     rows.forEach((r) => {
       if (r.project_code || r.project_name) projects.add(r.project_code || r.project_name);
-      if (r.unit) units.add(r.unit);
+      if (r.unit && !Logic.normalizeUnit(r.unit)) units.add(r.unit);
       if (r.week) weeks.add(r.week);
       if (r.month) months.add(r.month);
     });
     const byYearDesc = (a, b) => { const [x1, y1] = a.split('/').map(Number); const [x2, y2] = b.split('/').map(Number); return y2 - y1 || x2 - x1; };
     ui.opts = {
       projects: Array.from(projects).sort((a, b) => a.localeCompare(b, 'vi')),
-      units: Array.from(units).sort((a, b) => a.localeCompare(b, 'vi')),
+      units: Logic.UNITS.concat(Array.from(units).sort((a, b) => a.localeCompare(b, 'vi'))), // 2 phòng chuẩn + tên lạ (nếu có)
       weeks: Array.from(weeks).sort(byYearDesc),
       months: Array.from(months).sort(byYearDesc),
     };
@@ -553,9 +605,55 @@ function linesPage() {
   function checkIssuable(data) {
     const bad = data.filter((d) => !d.name || !(d.qty_requested > 0));
     if (bad.length) { App.toast(bad.length + ' dòng thiếu tên vật tư hoặc số lượng yêu cầu.', 'error'); return false; }
-    const noUnit = data.filter((d) => !String(d.unit || '').trim());
-    if (noUnit.length) { App.toast(noUnit.length + ' dòng chưa chọn Đơn vị đề xuất (phòng ban). Hãy điền Đơn vị đề xuất trước khi xuất phiếu.', 'error'); return false; }
+    const noUnit = data.filter((d) => !Logic.normalizeUnit(d.unit));
+    if (noUnit.length) { App.toast(noUnit.length + ' dòng chưa có Đơn vị đề xuất hợp lệ — hãy chọn Phòng Cải tiến hoặc Phòng Thiết bị trước khi xuất phiếu.', 'error'); return false; }
+    if (new Set(data.map((d) => Logic.normalizeUnit(d.unit))).size > 1) { App.toast(MIXED_UNIT_MSG, 'error'); return false; }
     return true;
+  }
+
+  const MIXED_UNIT_MSG = 'Một phiếu chỉ được thuộc 1 phòng ban (Cải tiến hoặc Thiết bị) vì người ký khác nhau. Hãy tách thành 2 phiếu.';
+  /** Đơn vị (chuẩn hóa) của các dòng đã có trong phiếu `code`. */
+  function unitsOfCode(code) {
+    return new Set(table.getData().filter((d) => d.request_code === code).map((d) => Logic.normalizeUnit(d.unit)).filter(Boolean));
+  }
+  /**
+   * Kiểm tra việc đổi phòng ban của các dòng ĐÃ có phiếu. moves: [{key, code, from, to}].
+   * Trả { mixed: [mã phiếu sẽ bị trộn 2 phòng → phải chặn], codes: [mã phiếu đổi phòng hợp lệ → cần xác nhận] }.
+   * Phiếu "bị trộn" = sau khi áp dụng mọi dòng đang đổi, phiếu có phòng mới (trước đó chưa có) và thuộc >1 phòng.
+   */
+  function unitMoveCheck(moves) {
+    const byCode = new Map();
+    moves.forEach((m) => {
+      if (!m.code || !m.to || Logic.normalizeUnit(m.to) === Logic.normalizeUnit(m.from)) return;
+      if (!byCode.has(m.code)) byCode.set(m.code, new Map());
+      byCode.get(m.code).set(m.key, { to: m.to, from: m.from });
+    });
+    const out = { mixed: [], codes: [] };
+    byCode.forEach((moved, code) => {
+      const before = new Set();
+      const after = new Set();
+      table.getData().forEach((d) => {
+        if (d.request_code !== code) return;
+        const mv = moved.get(d._key);
+        // d.unit có thể đã bị ghi giá trị mới trước khi kiểm tra → lấy 'from' của dòng đang đổi làm giá trị trước
+        const b = Logic.normalizeUnit(mv ? mv.from : d.unit);
+        const n = Logic.normalizeUnit(mv ? mv.to : d.unit);
+        if (b) before.add(b);
+        if (n) after.add(n);
+      });
+      // Chỉ chặn khi việc đổi đưa thêm phòng MỚI vào phiếu và phiếu thành >1 phòng (phiếu cũ vốn trộn thì không bị chặn thêm)
+      const addsNew = [...after].some((u) => !before.has(u));
+      (addsNew && after.size > 1 ? out.mixed : out.codes).push(code);
+    });
+    return out;
+  }
+  const unitMoveAsk = (codes) => confirm('Dòng thuộc phiếu ' + codes.join(', ') + '. Đổi phòng ban sẽ đổi người ký khi in lại phiếu này. Tiếp tục?');
+
+  /** Các đơn vị mới thêm vào phiếu `code` phải cùng phòng ban với các dòng đã có. Đúng → true. */
+  function sameUnitAsCode(units, code) {
+    const have = unitsOfCode(code);
+    if (!have.size) return true;
+    return units.every((u) => have.has(Logic.normalizeUnit(u)));
   }
 
   /** Lưu hết thay đổi đang chờ rồi trả id của các dòng (dòng mới cần được tạo xong trên máy chủ). */
@@ -579,7 +677,9 @@ function linesPage() {
 
   /** Thêm các dòng (chưa có phiếu) vào phiếu `code` đã xuất, rồi mở phiếu để in lại với đủ dòng. */
   async function appendRows(rows, code) {
-    if (!checkIssuable(rows.map((r) => r.getData()))) return;
+    const newData = rows.map((r) => r.getData());
+    if (!checkIssuable(newData)) return;
+    if (!sameUnitAsCode(newData.map((d) => d.unit), code)) { App.toast(MIXED_UNIT_MSG, 'error'); return; }
     const win = App.openPrintWindow();
     if (win) win.document.write('<p style="font:16px sans-serif;padding:24px">Đang thêm vào phiếu ' + App.esc(code) + '…</p>');
     try {
@@ -642,14 +742,25 @@ function linesPage() {
       });
       formProjects = projects;
       this.dl = {
-        units: cat.units.map((u) => u.name).filter(Boolean), projects: Array.from(projects.keys()), uoms: cat.uoms.map((u) => u.name).filter(Boolean),
+        units: Logic.UNITS.slice(), projects: Array.from(projects.keys()), uoms: cat.uoms.map((u) => u.name).filter(Boolean),
         loc: h.delivery_location, req: h.requester, purpose: h.purpose, sup: h.supplier, name: h.name,
         equip: h.equipment_name, groups: cat.material_groups.filter((g) => g.name).map((g) => ({ code: g.name, desc: g.description || '' })),
         codes: knownCodes(),
       };
     },
     openForm() {
+      historyCache = null; // làm mới gợi ý + chỉ mục cảnh báo trùng theo dữ liệu bảng hiện tại
       this.fillLists();
+      let restored = false;
+      if (!this.fm.items.some(itemHasContent)) {
+        const d = this.draftLoad();
+        if (d) {
+          const keepNeed = (v) => (v && String(v) >= today ? String(v) : ''); // ngày cần có đã qua → bỏ
+          this.fm.c = Object.assign({}, d.c, { unit: Logic.normalizeUnit(d.c.unit) || '', request_date: today, need_date: keepNeed(d.c.need_date) });
+          this.fm.items = d.items.map((x) => { const it = newFormItem(); FORM_FIELDS.forEach((f) => { if (x[f] !== undefined && x[f] !== null) it[f] = String(x[f]); }); it.need_date = keepNeed(it.need_date); return it; });
+          restored = true;
+        }
+      }
       if (!this.fm.items.length) { this.fm.items = []; this.formAddRow(3); }
       this.fm.c = Object.assign({
         unit: '', project: '', delivery_location: '', requester: App.user.full_name, request_date: today, need_date: '', purpose: '', supplier: '', equipment_name: '', material_group: '',
@@ -660,6 +771,7 @@ function linesPage() {
       this.formNeedDate();
       this.fm.error = '';
       this.fm.open = true;
+      if (restored) App.toast('Đã khôi phục bản nháp', 'ok');
       setTimeout(() => {
         const id = (this.fm.c.unit || '').trim() ? 'fm-name-0' : 'fm-unit';
         const el = document.getElementById(id);
@@ -667,7 +779,16 @@ function linesPage() {
       }, 100);
     },
     // ---------- Form sửa một dòng ----------
-    ef: { open: false, key: null, error: '', locked: false, code: '', d: {} },
+    ef: { open: false, key: null, error: '', locked: false, code: '', d: {}, legacyUnit: '' },
+    /** Các lựa chọn ở ô Đơn vị của form sửa: 2 phòng chuẩn + (nếu dòng mang tên cũ) một lựa chọn '(cũ) …' để select hiện đúng. */
+    /** Dòng đang sửa mang tên phòng cũ (không thuộc 2 phòng chuẩn) → hiện option '(cũ) …'. */
+    efLegacy() { const o = this.ef.legacyUnit; return !!o && !Logic.UNITS.includes(o); },
+    efUnits() {
+      const list = Logic.UNITS.map((u) => ({ value: u, label: u }));
+      const old = this.ef.legacyUnit;
+      if (old && !Logic.UNITS.includes(old)) list.unshift({ value: old, label: '(cũ) ' + old });
+      return list;
+    },
 
     /** Tick đúng 1 dòng rồi bấm "Sửa dòng": mở form đầy đủ các trường của dòng đó. */
     openEdit(row) {
@@ -678,7 +799,7 @@ function linesPage() {
       const d = {};
       EDITABLE_FIELDS.forEach((f) => { d[f] = r[f] === null || r[f] === undefined ? '' : r[f]; });
       d.project = [r.project_code, r.project_name].filter(Boolean).join(' — ');
-      this.ef = { open: true, key: r._key, error: '', locked: !!r.request_code && !isAdmin(), code: r.request_code || '', id: r.id, d };
+      this.ef = { open: true, key: r._key, error: '', locked: !!r.request_code && !isAdmin(), code: r.request_code || '', id: r.id, d, legacyUnit: d.unit };
       setTimeout(() => { const el = document.getElementById('ef-name'); if (el) el.focus(); }, 100);
     },
     saveEdit() {
@@ -695,22 +816,32 @@ function linesPage() {
       };
       const pj = formProjectOf(e.d.project);
       next.project_code = pj.code; next.project_name = pj.name;
-      if (!next.unit) {
-        e.error = 'Vui lòng chọn Đơn vị đề xuất (phòng ban).';
+      const same = (a, b) => (a === null || a === undefined || a === '' ? null : a) === (b === null || b === undefined || b === '' ? null : b);
+      // Đơn vị: tên cũ (P.Cải tiến…) cùng phòng với giá trị mới thì coi như không đổi → không ghi đè
+      const nu = Logic.normalizeUnit(next.unit);
+      const cu = Logic.normalizeUnit(cur.unit);
+      const unitSame = nu === cu && (nu !== null || same(next.unit, cur.unit));
+      if (!next.unit || (!unitSame && !nu)) {
+        e.error = 'Vui lòng chọn Đơn vị đề xuất: Phòng Cải tiến hoặc Phòng Thiết bị.';
         const el = document.getElementById('ef-unit');
         if (el) el.focus();
         return;
       }
       if (!next.name) { e.error = 'Thiếu tên vật tư.'; return; }
       if (!(next.qty_requested > 0)) { e.error = 'Số lượng yêu cầu phải lớn hơn 0.'; return; }
-      const same = (a, b) => (a === null || a === undefined || a === '' ? null : a) === (b === null || b === undefined || b === '' ? null : b);
       const changes = {};
       Object.keys(next).forEach((f) => {
+        if (f === 'unit' && unitSame) return;
         if (e.locked && LOCKED_AFTER_ISSUE.includes(f)) return; // dòng đã có phiếu: người thường không đổi được tên/số lượng
         if (!same(next[f], cur[f])) changes[f] = next[f];
       });
       const fields = Object.keys(changes);
       if (!fields.length) { e.open = false; App.toast('Không có thay đổi.', 'ok'); return; }
+      if ('unit' in changes && cur.request_code) {
+        const chk = unitMoveCheck([{ key: cur._key, code: cur.request_code, from: cur.unit, to: changes.unit }]);
+        if (chk.mixed.length) { e.error = MIXED_UNIT_MSG; return; }
+        if (chk.codes.length && !unitMoveAsk(chk.codes)) return;
+      }
       safeUpdate(row, Object.assign(changes, derive(Object.assign({}, cur, changes))));
       markDirty(row, fields);
       historyCache = null;
@@ -732,7 +863,34 @@ function linesPage() {
       else if (a === 'del') this.remove([row]);
     },
     deselectAll() { table.deselectRow(); },
+    // ---------- Nháp form thêm (localStorage, theo người dùng; mọi thao tác bọc try/catch vì trình duyệt có thể chặn) ----------
+    draftLoad() {
+      try {
+        const k = draftKey();
+        const raw = k && localStorage.getItem(k);
+        const d = raw && JSON.parse(raw);
+        if (!d || !Array.isArray(d.items) || !d.items.some(itemHasContent)) return null;
+        return { c: d.c && typeof d.c === 'object' ? d.c : {}, items: d.items.filter((x) => x && typeof x === 'object') };
+      } catch (e) { return null; }
+    },
+    draftSave() {
+      clearTimeout(draftTimer);
+      try {
+        const k = draftKey();
+        if (!k) return;
+        if (!this.fm.items.some(itemHasContent)) { localStorage.removeItem(k); return; }
+        const c = Object.assign({}, this.fm.c);
+        delete c.append_code;
+        localStorage.setItem(k, JSON.stringify({ c, items: this.fm.items }));
+      } catch (e) { /* bỏ qua: không lưu được nháp thì form vẫn dùng bình thường */ }
+    },
+    draftSchedule() { clearTimeout(draftTimer); draftTimer = setTimeout(() => this.draftSave(), 500); },
+    draftClear() {
+      clearTimeout(draftTimer);
+      try { const k = draftKey(); if (k) localStorage.removeItem(k); } catch (e) { /* bỏ qua */ }
+    },
     closeForm() {
+      if (!this.fm.open) return; // Esc khi form đã đóng: không làm gì
       if (this.fm.busy) return;
       const filled = this.fm.items.some((i) => (i.name || '').trim());
       if (filled && !confirm('Đóng form? Các vật tư đang nhập chưa lưu sẽ giữ lại cho lần mở sau.')) return;
@@ -740,13 +898,89 @@ function linesPage() {
     },
     formAddRow(n) { for (let i = 0; i < n; i++) { const it = newFormItem(); it.need_date = this.fm.c.need_date || ''; this.fm.items.push(it); } },
     formRemove(i) { this.fm.items.splice(i, 1); if (!this.fm.items.length) this.formAddRow(1); },
-    formEnter(i) {
+    formEnter(i, e) {
+      if (e && (e.ctrlKey || e.metaKey)) return; // Ctrl/Cmd+Enter = phím tắt lưu, không nhảy dòng
       if (i === this.fm.items.length - 1) this.formAddRow(1);
       setTimeout(() => { const el = document.getElementById('fm-name-' + (i + 1)); if (el) el.focus(); }, 60);
     },
     formName(it) {
-      const hit = history().byName[Logic.fold(it.name)];
-      if (hit && !it.uom && hit.uom) it.uom = hit.uom;
+      const hit = history().byName[Logic.fold(it.name)] || {};
+      const blank = (v) => !String(v === undefined || v === null ? '' : v).trim();
+      const auto = it._auto || {};
+      const want = {
+        uom: hit.uom || '',
+        material_group: blank(this.fm.c.material_group) && hit.material_group ? hit.material_group : '',
+        unit_price: hit.unit_price ? String(hit.unit_price) : '',
+      };
+      // chỉ điền ô trống, hoặc ô còn mang đúng giá trị do gợi ý trước đó điền (người dùng chưa sửa tay)
+      Object.keys(want).forEach((f) => {
+        const cur = it[f] === undefined || it[f] === null ? '' : String(it[f]);
+        if (blank(cur) || (f in auto && cur === auto[f])) {
+          it[f] = want[f];
+          if (want[f]) auto[f] = want[f]; else delete auto[f];
+        } else delete auto[f];
+      });
+      it._auto = auto;
+    },
+    /** Ctrl/Cmd+Enter khi form thêm đang mở = nút "Lưu" (không xuất phiếu). */
+    formKeydown(e) {
+      if (!this.fm.open || this.fm.busy || this.ef.open) return;
+      if (e.key !== 'Enter' || !(e.ctrlKey || e.metaKey) || e.isComposing) return;
+      if (e.target && e.target.tagName === 'TEXTAREA') return; // ô dán Excel
+      e.preventDefault();
+      this.formSubmit(false);
+    },
+    /** Dán nhiều ô (TSV) vào lưới: điền từ ô đang đứng, thêm dòng khi thiếu. Một giá trị đơn → dán bình thường. */
+    formGridPaste(e) {
+      const tg = e.target;
+      const f = tg && tg.getAttribute && tg.getAttribute('data-f');
+      const col0 = FORM_FIELDS.indexOf(f);
+      const row0 = Number(tg && tg.getAttribute && tg.getAttribute('data-i'));
+      if (col0 < 0 || !(row0 >= 0)) return;
+      const text = (e.clipboardData || window.clipboardData).getData('text') || '';
+      if (!/[\t\n\r]/.test(text)) return;
+      const rows = parseTsv(text);
+      if (!rows.length || (rows.length === 1 && rows[0].length === 1)) return;
+      e.preventDefault();
+      const groups = App.boot.catalogs.material_groups;
+      const need = row0 + rows.length - this.fm.items.length;
+      if (need > 0) this.formAddRow(need);
+      rows.forEach((r, ri) => {
+        const it = this.fm.items[row0 + ri];
+        r.forEach((raw, ci) => {
+          const field = FORM_FIELDS[col0 + ci];
+          if (!field) return; // cột ngoài phạm vi
+          const v = String(raw).trim();
+          if (NUM_FIELDS.includes(field)) it[field] = Logic.parseNum(v) === null ? '' : v;
+          else if (field === 'need_date') it[field] = Logic.parseDate(v) || '';
+          else if (field === 'material_group') it[field] = Logic.normalizeMaterialGroup(v, groups) || '';
+          else it[field] = v;
+        });
+        if ((it.name || '').trim()) this.formName(it);
+      });
+    },
+    /**
+     * Cảnh báo (không chặn lưu): dòng form trùng vật tư + cùng hạng mục với dòng đã có trên bảng mà chưa nhận đủ.
+     * Chỉ dò trên dữ liệu bảng đã tải (chưa tải hết lịch sử thì có thể sót); dùng chỉ mục theo tên trong history().
+     */
+    formDupes() {
+      const out = [];
+      const idx = history().rowsByName;
+      const num = (n) => String(Math.round(n * 1000) / 1000);
+      const same = (a, b) => (!a.code && !a.name && !b.code && !b.name) || (a.code && b.code ? a.code === b.code : !a.code && !b.code && !!a.name && a.name === b.name);
+      this.fm.items.forEach((it, i) => {
+        const name = (it.name || '').trim();
+        if (!name) return;
+        const list = idx[Logic.fold(name)];
+        if (!list) return;
+        const pj = formProjectOf((it.project || '').trim() ? it.project : this.fm.c.project);
+        const hits = list.filter((d) => d.id && Logic.qtyMissing(d) > 0
+          && same(pj, { code: d.project_code || null, name: d.project_name || null }));
+        if (!hits.length) return;
+        const parts = hits.slice().reverse().slice(0, 3).map((d) => (d.request_code ? 'phiếu ' + d.request_code : 'dòng chưa có phiếu') + ', còn thiếu ' + num(Logic.qtyMissing(d)));
+        out.push('Dòng ' + (i + 1) + ' (' + name + '): đã có ở ' + parts.join('; đã có ở ') + (hits.length > 3 ? ' và ' + (hits.length - 3) + ' dòng nữa' : ''));
+      });
+      return out;
     },
     formProject() { /* nhận diện lúc lưu */ },
     /** Ngày cần có chung → điền xuống mọi dòng chưa có ngày riêng (hoặc đang mang ngày chung cũ), để nhìn thấy ngay. */
@@ -764,7 +998,8 @@ function linesPage() {
       if (!first) return;
       const c = this.fm.c;
       const fill = (k, v) => { if (!(c[k] || '').trim() && v) c[k] = v; };
-      ['unit', 'delivery_location', 'requester', 'purpose', 'supplier', 'equipment_name', 'material_group'].forEach((k) => fill(k, first[k]));
+      fill('unit', Logic.normalizeUnit(first.unit)); // tên cũ → tên chuẩn; không nhận ra thì để trống
+      ['delivery_location', 'requester', 'purpose', 'supplier', 'equipment_name', 'material_group'].forEach((k) => fill(k, first[k]));
       fill('need_date', first.need_date);
       fill('project', [first.project_code, first.project_name].filter(Boolean).join(' — '));
     },
@@ -783,8 +1018,8 @@ function linesPage() {
     async formSubmit(issue) {
       this.fm.error = '';
       const c = this.fm.c;
-      if (!(c.unit || '').trim()) {
-        this.fm.error = 'Vui lòng chọn Đơn vị đề xuất (phòng ban).';
+      if (!Logic.UNITS.includes(c.unit)) {
+        this.fm.error = 'Vui lòng chọn Đơn vị đề xuất: Phòng Cải tiến hoặc Phòng Thiết bị.';
         const el = document.getElementById('fm-unit');
         if (el) el.focus();
         return;
@@ -822,6 +1057,7 @@ function linesPage() {
       // có chọn phiếu cũ → thêm vào phiếu đó (giữ số); không thì lưu thường / cấp số mới
       const appendCode = (c.append_code || '').trim().toUpperCase();
       if (appendCode) issue = false;
+      if (appendCode && !sameUnitAsCode([c.unit], appendCode)) { this.fm.error = MIXED_UNIT_MSG; return; }
       if (appendCode && !confirm('Lưu ' + items.length + ' vật tư và thêm vào phiếu ' + appendCode + ' (giữ nguyên số phiếu)?')) return;
       if (issue && !confirm('Lưu ' + items.length + ' vật tư và cấp số phiếu mới?')) return;
       const win = issue || appendCode ? App.openPrintWindow() : null;
@@ -835,6 +1071,7 @@ function linesPage() {
         updateInfo();
         this.fm.items = []; this.formAddRow(3);
         this.fm.c.append_code = '';
+        this.draftClear();
         if (res.code) { lastCode = res.code; this.fm.lastCode = res.code; }
         this.fm.open = false;
         table.scrollToRow('i' + res.lines[res.lines.length - 1].id, 'bottom', false).catch(() => {});
@@ -856,6 +1093,10 @@ function linesPage() {
       const boot = await App.init();
       today = boot.today || today;
       this.isAdmin = isAdmin();
+      if (this.$watch) { // lưu nháp có debounce mỗi khi form đổi (Alpine theo dõi sâu cả đối tượng)
+        this.$watch('fm.c', () => this.draftSchedule());
+        this.$watch('fm.items', () => this.draftSchedule());
+      }
       boot.catalogs.project_items.forEach((p) => {
         const code = p.item_code || p.project_code;
         const name = p.item_name || p.project_name;
@@ -973,6 +1214,9 @@ function linesPage() {
             codes.slice(0, 3).join(', ') + '). Muốn thêm vào phiếu cũ thì chỉ chọn kèm dòng của đúng 1 phiếu.', 'error');
           return;
         }
+        const newData = uncoded.map((r) => r.getData());
+        if (!checkIssuable(newData)) return;
+        if (!sameUnitAsCode(newData.map((d) => d.unit), codes[0])) { App.toast(MIXED_UNIT_MSG, 'error'); return; }
         if (!confirm('Thêm ' + uncoded.length + ' dòng chưa có phiếu vào phiếu ' + codes[0] + ' (giữ nguyên số phiếu)?')) return;
         await appendRows(uncoded, codes[0]);
         return;

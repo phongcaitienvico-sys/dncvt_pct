@@ -135,6 +135,13 @@ function linesPage() {
     return [
       { formatter: 'rowSelection', titleFormatter: 'rowSelection', titleFormatterParams: { rowRange: 'active' },
         hozAlign: 'center', headerSort: false, width: 36, frozen: true },
+      { field: '_act', title: '', width: 92, hozAlign: 'center', headerSort: false, frozen: true, cssClass: 'col-act',
+        formatter: () => '<span class="ra" data-a="edit" title="Sửa bằng form (hoặc nhấp đúp vào dòng)">✎</span>' +
+          '<span class="ra" data-a="dup" title="Nhân bản dòng">⧉</span><span class="ra danger" data-a="del" title="Xóa dòng">🗑</span>',
+        cellClick: (e, cell) => {
+          const a = e.target.closest && e.target.closest('[data-a]');
+          if (a) ui.rowAction(a.getAttribute('data-a'), cell.getRow());
+        } },
       { field: 'id', title: 'STT', width: 62, hozAlign: 'right', sorter: 'number', frozen: true },
       { field: 'request_code', title: 'Số phiếu', width: 112, frozen: true, cssClass: 'code col-code' },
       { field: '_status', title: 'Trạng thái', width: 122, sorter: (a, b, ra, rb) => ra.getData()._st.label.localeCompare(rb.getData()._st.label),
@@ -440,6 +447,7 @@ function linesPage() {
     const total = table.getDataCount();
     const shown = table.getDataCount('active');
     const sel = table.getSelectedRows().length;
+    ui.sel = sel;
     ui.info = total + ' dòng' + (shown !== total ? ' · đang hiện ' + shown : '') + (sel ? ' · đã chọn ' + sel : '');
   }
 
@@ -448,7 +456,7 @@ function linesPage() {
    * (tối đa AUTO_MAX px, dòng dài hơn tự xuống dòng) và luôn đủ rộng cho tiêu đề (tiêu đề dài tự xuống 2 dòng).
    */
   const AUTO_MAX = 440;
-  const FIXED_FIELDS = ['id', 'request_code'];
+  const FIXED_FIELDS = ['id', 'request_code', '_act'];
   function autoFitColumns(rows) {
     const ctx = document.createElement('canvas').getContext('2d');
     const measure = (text, bold) => { ctx.font = (bold ? '600 ' : '') + '14px "Noto Sans", system-ui, sans-serif'; return ctx.measureText(text).width; };
@@ -614,6 +622,7 @@ function linesPage() {
     statusFilters: Logic.STATUS_FILTERS,
     info: 'Đang tải…',
     unsaved: 0,
+    sel: 0, // số dòng đang tick (thanh thao tác nổi + nhãn nút Xuất phiếu)
     loadingMore: false, // đang tải phần dữ liệu cũ hơn ở nền
 
     // ---------- Form thêm nhiều vật tư ----------
@@ -661,9 +670,9 @@ function linesPage() {
     ef: { open: false, key: null, error: '', locked: false, code: '', d: {} },
 
     /** Tick đúng 1 dòng rồi bấm "Sửa dòng": mở form đầy đủ các trường của dòng đó. */
-    openEdit() {
-      const rows = table.getSelectedRows();
-      if (rows.length !== 1) { App.toast(rows.length ? 'Chỉ chọn 1 dòng để sửa bằng form (sửa nhiều dòng: nhấp thẳng vào ô).' : 'Hãy tick chọn 1 dòng cần sửa.', 'error'); return; }
+    openEdit(row) {
+      const rows = row && row.getData ? [row] : table.getSelectedRows();
+      if (rows.length !== 1) { App.toast(rows.length ? 'Chỉ chọn 1 dòng để sửa bằng form (sửa nhiều dòng: nhấp thẳng vào ô).' : 'Hãy bấm ✎ ở đầu dòng, hoặc tick chọn 1 dòng cần sửa.', 'error'); return; }
       const r = rows[0].getData();
       this.fillLists();
       const d = {};
@@ -709,6 +718,20 @@ function linesPage() {
       e.open = false;
       App.toast('Đã sửa ' + fields.length + ' trường, đang lưu…', 'ok');
     },
+    /** Nút "Xóa dòng này" trong form sửa. */
+    deleteFromEdit() {
+      const row = table.getRow(this.ef.key);
+      if (!row) { this.ef.error = 'Không tìm thấy dòng (có thể đã bị xóa).'; return; }
+      this.ef.open = false;
+      this.remove([row]);
+    },
+    /** Nút ✎ ⧉ 🗑 ở đầu mỗi dòng. */
+    rowAction(a, row) {
+      if (a === 'edit') this.openEdit(row);
+      else if (a === 'dup') this.duplicate([row]);
+      else if (a === 'del') this.remove([row]);
+    },
+    deselectAll() { table.deselectRow(); },
     closeForm() {
       if (this.fm.busy) return;
       const filled = this.fm.items.some((i) => (i.name || '').trim());
@@ -861,6 +884,13 @@ function linesPage() {
         // bôi đen chữ cũ: gõ là thay luôn, không phải xóa tay từng ký tự
         setTimeout(() => { const inp = cell.getElement().querySelector('input'); if (inp && inp.select) inp.select(); }, 30);
       });
+      // nhấp đúp vào ô KHÔNG sửa trực tiếp được (STT, số phiếu, trạng thái, thành tiền, ô bị khóa…) → mở form sửa dòng
+      table.on('cellDblClick', (e, cell) => {
+        const field = cell.getField();
+        if (!field || field === '_act') return;
+        const editable = cell.getColumn().getDefinition().editor && !cell.getElement().classList.contains('locked');
+        if (!editable) ui.openEdit(cell.getRow());
+      });
       table.on('cellClick', (e, cell) => { lastCell = { key: cell.getRow().getData()._key, field: cell.getField() }; });
       table.on('rowSelectionChanged', updateInfo);
       table.on('dataFiltered', () => setTimeout(updateInfo));
@@ -999,8 +1029,8 @@ function linesPage() {
       if (codes.length) window.open(App.printUrl(codes), '_blank');
     },
 
-    async duplicate() {
-      const rows = table.getSelectedRows();
+    async duplicate(given) {
+      const rows = Array.isArray(given) ? given : table.getSelectedRows();
       if (!rows.length) { App.toast('Hãy chọn dòng cần nhân bản.', 'error'); return; }
       try {
         await flushAll();
@@ -1015,8 +1045,8 @@ function linesPage() {
       } catch (e) { App.toast(e.message, 'error'); }
     },
 
-    async remove() {
-      const rows = table.getSelectedRows();
+    async remove(given) {
+      const rows = Array.isArray(given) ? given : table.getSelectedRows();
       if (!rows.length) { App.toast('Hãy chọn dòng cần xóa.', 'error'); return; }
       const coded = rows.filter((r) => r.getData().request_code);
       if (coded.length && !isAdmin()) {

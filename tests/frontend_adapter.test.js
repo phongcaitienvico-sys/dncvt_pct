@@ -914,3 +914,115 @@ test('Đề nghị thanh toán: 10 action payments/payreq đi đúng RPC ở Sup
   assert.ok(html.indexOf('js/vendor/supabase.min.js') > 0 && html.indexOf('js/app.js') > html.indexOf('js/vendor/supabase.min.js'));
   assert.match(html, /js\/payments\.js\?v=[\w]+/);
 });
+
+// ---------- Bảng vật tư: nút thao tác ở đầu mỗi dòng, nhấp đúp mở form, thanh chọn nhiều dòng ----------
+
+async function setupLinesPage(rowsData, { selected = [] } = {}) {
+  const { sandbox, runScript } = createBrowserEnv({ pathname: '/lines.html' });
+  const handlers = {};
+  const calls = [];
+  let config = null;
+  const rows = rowsData.map((data) => ({
+    data,
+    deleted: false,
+    getData() { return data; },
+    update(patch) { Object.assign(data, patch); },
+    reformat() {},
+    deselect() {},
+    delete() { this.deleted = true; },
+    getElement: () => ({ classList: { toggle() {}, add() {}, remove() {}, contains: () => false } }),
+    getCell: () => null,
+  }));
+  const byKey = (k) => rows.find((r) => r.data._key === k);
+  sandbox.Tabulator = function (_sel, cfg) {
+    config = cfg;
+    return {
+      on(ev, fn) { handlers[ev] = fn; if (ev === 'tableBuilt') setTimeout(fn, 0); },
+      setData: async () => {}, setFilter() {}, redraw() {}, blockRedraw() {}, restoreRedraw() {},
+      getData: () => rows.map((r) => r.data),
+      getDataCount: () => rows.length,
+      getSelectedRows: () => selected.map(byKey),
+      getRow: byKey,
+      getColumns: () => [],
+      deselectRow() { calls.push({ deselectAll: true }); },
+      scrollToRow: async () => {},
+    };
+  };
+  sandbox.document.getElementById = () => ({ addEventListener() {}, setAttribute() {} });
+  sandbox.confirm = () => true;
+  sandbox.App.prefetchRecent = () => {};
+  const boot = {
+    today: '2026-10-26', users: [],
+    user: { username: 'nam', full_name: 'Nam', role: 'user' },
+    catalogs: { project_items: [], units: [{ name: 'PX1' }], material_groups: [], uoms: [], suppliers: [] },
+  };
+  sandbox.App.init = async () => { sandbox.App.boot = boot; sandbox.App.user = boot.user; return boot; };
+  sandbox.App.loadLines = async () => ({ objects: [], diff: null });
+  sandbox.App.toast = (msg, kind) => calls.push({ toast: msg, kind });
+  sandbox.Api.call = async (action, params) => { calls.push({ action, params }); return action === 'lines.delete' ? {} : []; };
+  runScript('js/lines.js');
+  const page = sandbox.linesPage();
+  await page.init();
+  return { page, config, handlers, calls, rows, fromVm };
+}
+
+test('Bảng vật tư: cột thao tác ✎ ⧉ 🗑 ở đầu dòng; 🗑 xóa đúng dòng đó mà không cần tick', async () => {
+  const t = await setupLinesPage([
+    { _key: 'i1', id: 1, name: 'Bulong' }, { _key: 'i2', id: 2, name: 'Đai ốc' },
+  ]);
+  const act = t.config.columns.find((c) => c.field === '_act');
+  assert.ok(act, 'phải có cột thao tác _act');
+  const html = act.formatter();
+  ['edit', 'dup', 'del'].forEach((a) => assert.ok(html.includes('data-a="' + a + '"'), 'thiếu nút ' + a));
+
+  const clickAction = (a, row) => act.cellClick(
+    { target: { closest: () => ({ getAttribute: () => a }) } },
+    { getRow: () => row },
+  );
+  clickAction('del', t.rows[1]);
+  await new Promise((r) => setTimeout(r, 20));
+  const del = t.calls.find((c) => c.action === 'lines.delete');
+  assert.ok(del, 'phải gọi lines.delete');
+  assert.deepEqual(fromVm(del.params.ids), [2]);
+  assert.equal(t.rows[1].deleted, true);
+  assert.equal(t.rows[0].deleted, false);
+});
+
+test('Bảng vật tư: ✎ và nhấp đúp ô không sửa trực tiếp được mở form sửa dòng đó (không cần tick)', async () => {
+  const t = await setupLinesPage([{ _key: 'i7', id: 7, name: 'Thép', qty_requested: 3, unit: 'PX1' }]);
+  const act = t.config.columns.find((c) => c.field === '_act');
+  act.cellClick({ target: { closest: () => ({ getAttribute: () => 'edit' }) } }, { getRow: () => t.rows[0] });
+  assert.equal(t.page.ef.open, true);
+  assert.equal(t.page.ef.id, 7);
+  assert.equal(t.page.ef.d.name, 'Thép');
+
+  t.page.ef.open = false;
+  const cellFor = (field, editor) => ({
+    getField: () => field,
+    getRow: () => t.rows[0],
+    getColumn: () => ({ getDefinition: () => ({ editor }) }),
+    getElement: () => ({ classList: { contains: () => false } }),
+  });
+  t.handlers.cellDblClick({}, cellFor('amount', undefined)); // ô không sửa được → mở form
+  assert.equal(t.page.ef.open, true);
+  t.page.ef.open = false;
+  t.handlers.cellDblClick({}, cellFor('name', 'list')); // ô đang sửa trực tiếp → không mở form
+  assert.equal(t.page.ef.open, false);
+});
+
+test('Bảng vật tư: form sửa có nút Xóa dòng này; số dòng đang tick được theo dõi cho thanh thao tác nổi', async () => {
+  const t = await setupLinesPage([
+    { _key: 'i1', id: 1, name: 'A', unit: 'PX1' }, { _key: 'i2', id: 2, name: 'B', unit: 'PX1' },
+  ], { selected: ['i1', 'i2'] });
+  assert.equal(typeof t.page.deleteFromEdit, 'function');
+  t.page.openEdit(t.rows[0]);
+  t.page.deleteFromEdit();
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(t.page.ef.open, false);
+  assert.deepEqual(fromVm(t.calls.find((c) => c.action === 'lines.delete').params.ids), [1]);
+
+  t.handlers.rowSelectionChanged();
+  assert.equal(t.page.sel, 2);
+  t.page.deselectAll();
+  assert.ok(t.calls.some((c) => c.deselectAll));
+});

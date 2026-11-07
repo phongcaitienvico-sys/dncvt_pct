@@ -7,14 +7,14 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;600;700&display=swap&subset=vietnamese" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/tabulator-tables@6.3.1/dist/css/tabulator_simple.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="css/app.css?v=mw63bn0c">
+  <link rel="stylesheet" href="css/app.css?v=mw6mi5op">
   <script src="https://cdn.jsdelivr.net/npm/tabulator-tables@6.3.1/dist/js/tabulator.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script src="js/config.js?v=mw63bn0c"></script>
-  <script src="js/logic.js?v=mw63bn0c"></script>
-  <script src="js/vendor/supabase.min.js?v=mw63bn0c"></script>
-  <script src="js/app.js?v=mw63bn0c"></script>
-  <script src="js/lines.js?v=mw63bn0c"></script>
+  <script src="js/config.js?v=mw6mi5op"></script>
+  <script src="js/logic.js?v=mw6mi5op"></script>
+  <script src="js/vendor/supabase.min.js?v=mw6mi5op"></script>
+  <script src="js/app.js?v=mw6mi5op"></script>
+  <script src="js/lines.js?v=mw6mi5op"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js"></script>
   <style>
     #grid { background: #fff; }
@@ -27,16 +27,19 @@
     <!-- Bảng #grid nằm NGOÀI vùng Alpine để Alpine không phải quét hàng nghìn dòng mỗi lần cuộn -->
     <div x-data="linesPage()">
     <div class="toolbar">
-      <button class="primary" type="button" @click="issue()" title="Cấp số phiếu mới cho các dòng đã chọn, hoặc in lại nếu các dòng đã có số phiếu">Xuất phiếu PDF</button>
-      <button type="button" @click="reprintPrompt()">In lại theo số phiếu…</button>
-      <button type="button" @click="appendPrompt()" title="Quên vật tư sau khi xuất phiếu: tick các dòng mới (chưa có phiếu) rồi thêm vào phiếu đã xuất, giữ nguyên số phiếu">Thêm vào phiếu đã xuất…</button>
-      <button type="button" x-show="isAdmin" x-cloak @click="detach()" title="Quản trị: đưa dòng đã chọn ra khỏi phiếu (dòng trở lại chưa có phiếu, không xóa dữ liệu)">Gỡ khỏi phiếu</button>
       <button type="button" class="primary" style="background:#157f3b;border-color:#157f3b" @click="openForm()" title="Nhập nhiều vật tư một lần, có thể lưu kèm xuất phiếu">+ Thêm vật tư (form)</button>
-      <button type="button" @click="openEdit()" title="Tick 1 dòng rồi bấm để sửa bằng form (hoặc nhấp thẳng vào ô trên bảng)">Sửa dòng (form)</button>
-      <button type="button" @click="addRow()">+ Thêm dòng</button>
-      <button type="button" @click="duplicate()">Nhân bản dòng</button>
-      <button type="button" class="danger" @click="remove()">Xóa dòng</button>
-      <button type="button" @click="exportExcel()">Xuất Excel</button>
+      <button class="primary" type="button" @click="issue()" title="Cấp số phiếu mới cho các dòng đã tick, hoặc in lại nếu các dòng đã có số phiếu"
+        x-text="sel ? 'Xuất phiếu PDF (' + sel + ')' : 'Xuất phiếu PDF'"></button>
+      <button type="button" @click="addRow()" title="Thêm một dòng trống ở cuối bảng để gõ trực tiếp">+ Thêm dòng</button>
+      <div class="menu" x-data="{ o: false }" @click.outside="o = false" @keydown.escape="o = false">
+        <button type="button" @click="o = !o" :aria-expanded="o">⋯ Khác ▾</button>
+        <div class="menu-list" x-show="o" x-cloak @click="o = false">
+          <button type="button" @click="reprintPrompt()">In lại theo số phiếu…</button>
+          <button type="button" @click="appendPrompt()" title="Quên vật tư sau khi xuất phiếu: tick các dòng mới (chưa có phiếu) rồi thêm vào phiếu đã xuất, giữ nguyên số phiếu">Thêm vào phiếu đã xuất…</button>
+          <button type="button" x-show="isAdmin" x-cloak @click="detach()" title="Quản trị: đưa dòng đã tick ra khỏi phiếu (dòng trở lại chưa có phiếu, không xóa dữ liệu)">Gỡ khỏi phiếu</button>
+          <button type="button" @click="exportExcel()">Xuất Excel</button>
+        </div>
+      </div>
       <button type="button" @click="reload()" title="Tải thay đổi mới từ máy chủ (nhanh, chỉ phần đổi)">↻ Cập nhật</button>
       <span class="spacer"></span>
       <span class="unsaved" x-show="unsaved > 0">
@@ -75,6 +78,17 @@
       <button type="button" class="link" @click="clearFilters()">Bỏ lọc</button>
     </div>
 
+
+    <!-- Thanh thao tác nổi: hiện khi có dòng được tick -->
+    <div class="selbar" x-show="sel > 0" x-cloak>
+      <b>Đã chọn <span x-text="sel"></span> dòng</b>
+      <button type="button" x-show="sel === 1" @click="openEdit()">Sửa</button>
+      <button type="button" @click="duplicate()">Nhân bản</button>
+      <button type="button" @click="appendPrompt()" title="Thêm các dòng chưa có phiếu vào một phiếu đã xuất (giữ số)">Thêm vào phiếu…</button>
+      <button type="button" x-show="isAdmin" x-cloak @click="detach()">Gỡ khỏi phiếu</button>
+      <button type="button" class="danger" @click="remove()">Xóa</button>
+      <button type="button" class="link" @click="deselectAll()">Bỏ chọn</button>
+    </div>
 
     <!-- Form thêm nhiều vật tư -->
     <div class="modal-back" x-show="fm.open" x-cloak @keydown.escape.window="closeForm()">
@@ -188,6 +202,7 @@
           </div>
           <div class="error-text" x-text="ef.error"></div>
           <div class="modal-foot" style="padding:10px 0 0">
+            <button type="button" class="danger" @click="deleteFromEdit()" title="Xóa dòng vật tư này">Xóa dòng này</button>
             <span class="spacer"></span>
             <button type="button" @click="ef.open = false">Hủy</button>
             <button type="submit" class="primary">Lưu thay đổi</button>
@@ -209,7 +224,7 @@
     </div>
     <div id="grid"></div>
     <div class="muted small" style="margin-top:6px">
-      Nhấp vào ô để sửa · Enter: lưu và xuống dòng dưới (ở dòng cuối sẽ tự thêm dòng mới) ·
+      Nhấp vào ô để sửa · Nhấp đúp vào STT/số phiếu (hoặc bấm ✎) để mở form · ⧉ nhân bản, 🗑 xóa ngay trên dòng · Enter: lưu và xuống dòng dưới (ở dòng cuối sẽ tự thêm dòng mới) ·
       Dán từ Excel: nhấp chọn ô bắt đầu rồi Ctrl+V · Dòng đã có số phiếu: chỉ Quản trị sửa được tên vật tư và số lượng ·
       Quên vật tư sau khi xuất phiếu: tick dòng mới + 1 dòng của phiếu cũ rồi bấm "Xuất phiếu PDF" (hoặc dùng "Thêm vào phiếu đã xuất…") để giữ nguyên số phiếu.
     </div>

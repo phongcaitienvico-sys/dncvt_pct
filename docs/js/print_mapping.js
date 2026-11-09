@@ -41,17 +41,17 @@ window.PRINT_MAPPING = {
     // Tổng 100%; ưu tiên tên vật tư, hạng mục và mục đích, giữ đủ 14 cột Form1.
     columns: [
       { label: 'TT', field: 'stt', width: '3%', align: 'center' },
-      { label: 'Tên vật tư', field: 'name', width: '17%' },
+      { label: 'Tên vật tư', field: 'name', width: '18%' },
       { label: 'ĐVT', field: 'uom', width: '4%', align: 'center' },
       { label: 'Nhóm VT', field: 'material_group', width: '4%', align: 'center' },
       { label: 'Yêu cầu', group: 'Số lượng', field: 'qty_requested', format: 'num', width: '5%', align: 'right' },
       { label: 'Tồn kho', group: 'Số lượng', field: 'qty_on_hand', format: 'num', width: '5%', align: 'right' },
-      { label: 'Ngày cần có', field: 'need_date', format: 'date', width: '9%', align: 'center' },
-      { label: 'Mã/Tên hạng mục', field: 'project_name', width: '12%' },
-      { label: 'Nhóm chi phí', field: '', width: '9%' },            // Sheet cũ để trống
-      { label: 'Mục đích sử dụng', field: 'purpose', width: '11%' },
+      { label: 'Ngày cần có', field: 'need_date', format: 'date', width: '8%', align: 'center' },
+      { label: 'Mã/Tên hạng mục', field: 'project_name', width: '13%' },
+      { label: 'Nhóm chi phí', field: '', width: '6%' },            // Sheet cũ để trống
+      { label: 'Mục đích sử dụng', field: 'purpose', width: '13%' },
       { label: 'Vị trí giao', field: 'delivery_location', width: '5%' },
-      { label: 'Nhận và Ktra hàng', field: 'requester', width: '6%' },
+      { label: 'Nhận và Ktra hàng', field: 'requester', format: 'short_name', width: '6%', align: 'center' },
       { label: 'Người mua /NCC', field: 'supplier', width: '6%' },
       { label: 'Yêu cầu chào giá', field: '', width: '4%' },        // ghi tay
     ],

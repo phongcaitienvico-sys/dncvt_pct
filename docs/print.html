@@ -1,20 +1,24 @@
 <!doctype html>
 <html lang="vi">
+
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>In phiếu</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:ital,wght@0,400;0,600;0,700;1,400&display=swap&subset=vietnamese" rel="stylesheet">
-  <link rel="stylesheet" href="css/app.css?v=mw6vi34q">
+  <link
+    href="https://fonts.googleapis.com/css2?family=Noto+Sans:ital,wght@0,400;0,600;0,700;1,400&display=swap&subset=vietnamese"
+    rel="stylesheet">
+  <link rel="stylesheet" href="css/app.css?v=mw8x4od8">
   <link rel="stylesheet" href="css/print.css?v=20261023-layout3">
   <script src="https://cdn.jsdelivr.net/npm/nunjucks@3.2.4/browser/nunjucks.min.js"></script>
-  <script src="js/config.js?v=mw6vi34q"></script>
-  <script src="js/logic.js?v=mw6vi34q"></script>
-  <script src="js/vendor/supabase.min.js?v=mw6vi34q"></script>
-  <script src="js/app.js?v=mw6vi34q"></script>
-  <script src="js/print_mapping.js?v=mw6vi34q"></script>
+  <script src="js/config.js?v=mw8x4od8"></script>
+  <script src="js/logic.js?v=mw8x4od8"></script>
+  <script src="js/vendor/supabase.min.js?v=mw8x4od8"></script>
+  <script src="js/app.js?v=mw8x4od8"></script>
+  <script src="js/print_mapping.js?v=mw8x4od8"></script>
 </head>
+
 <body class="print">
   <div class="print-toolbar">
     <button class="primary" type="button" id="btn-print">In / Lưu PDF</button>
@@ -31,7 +35,8 @@
       <select id="rpp"></select>
     </label>
     <span class="muted small">Nội dung dài sẽ tự chia thêm trang để giữ đủ chữ và chữ ký.</span>
-    <span class="muted small">Muốn lưu file: chọn máy in "Lưu dưới dạng PDF" / "Save as PDF". Bỏ tick "Đầu trang và chân trang" để phiếu sạch.</span>
+    <span class="muted small">Muốn lưu file: chọn máy in "Lưu dưới dạng PDF" / "Save as PDF". Bỏ tick "Đầu trang và chân
+      trang" để phiếu sạch.</span>
     <span class="spacer"></span>
     <a href="lines.html">← Bảng vật tư</a>
   </div>
@@ -52,7 +57,7 @@
       // Khổ giấy: mặc định A5 ngang; số dòng mỗi trang gợi ý theo khổ (nhớ lựa chọn trên máy này)
       const PAPERS = {
         a5l: { size: 'A5 landscape', w: '210mm', h: '148mm', pad: '6mm 7mm 8mm 7mm', fs: '9pt', gap: '14mm', logo: '10mm', cp: '0.7mm', rows: 5 },
-        a4l: { size: 'A4 landscape', w: '297mm', h: '210mm', pad: '8mm 10mm 10mm 10mm', fs: '10pt', gap: '22mm', logo: '14mm', cp: '1mm', rows: 10 },
+        a4l: { size: 'A4 landscape', w: '297mm', h: '210mm', pad: '8mm 10mm 10mm 10mm', fs: '10pt', gap: '22mm', logo: '14mm', cp: '1mm', rows: 15 },
         a4p: { size: 'A4 portrait', w: '210mm', h: '297mm', pad: '10mm 10mm 12mm 12mm', fs: '11pt', gap: '30mm', logo: '20mm', cp: '1.5mm', rows: 15 },
         a5p: { size: 'A5 portrait', w: '148mm', h: '210mm', pad: '7mm 7mm 9mm 7mm', fs: '9pt', gap: '18mm', logo: '12mm', cp: '1mm', rows: 7 },
       };
@@ -98,12 +103,23 @@
         ]);
       } catch (e) { msg.textContent = e.message; return; }
 
+      // Rút gọn họ tên cho cột hẹp "Nhận và Ktra hàng": "Phan Thành Nam" → "PT Nam"
+      const shortName = (v) => String(v || '').split(/\s*[;,]\s*/).filter(Boolean).map((part) => {
+        const words = part.trim().split(/\s+/);
+        if (words.length <= 1) return words[0] || '';
+        const last = words[words.length - 1];
+        if (last.length <= 3 && last === last.toUpperCase()) return words.join(' ');
+        const initials = words.slice(0, -1).map((w) => w.charAt(0).toUpperCase()).join('');
+        return initials + ' ' + last;
+      }).join('; ');
+
       const fmt = (v, format) => {
         if (v === null || v === undefined || v === '') return '';
         if (format === 'date') return Logic.fmtDate(v);
         if (format === 'num') return Logic.fmtNum(v);
         if (format === 'money') return Logic.fmtNum(v, 0);
         if (format === 'money_d') { const s = Logic.fmtNum(v, 0); return s ? s + ' đ' : ''; }
+        if (format === 'short_name') return shortName(v);
         return v;
       };
       const get = (obj, path) => String(path || '').split('.').reduce((o, k) => (o === null || o === undefined ? undefined : o[k]), obj);
@@ -134,17 +150,16 @@
         });
         return [top, bottom];
       };
-      // Khối chữ ký: logic ở Logic.signaturesFor (bộ riêng theo phòng ban hoặc bộ mặc định; người ký sửa trong Quản trị → Danh mục → Người ký)
-      const aliasMap = {};
-      Object.keys(M.name_aliases || {}).forEach((k) => { aliasMap[Logic.fold(k)] = M.name_aliases[k]; });
-      const fullName = (v) => String(v || '').split(/\s*;\s*/).filter(Boolean).map((n) => aliasMap[Logic.fold(n)] || n).filter((n, i, arr) => arr.findIndex((x) => Logic.fold(x) === Logic.fold(n)) === i).join('; '); // dùng cho giấy đề nghị thanh toán
-      const signaturesFor = (unit, requester) => Logic.signaturesFor(unit, requester, { mapping: m, signers: boot.catalogs.signers, aliases: M.name_aliases });
-      // Gộp các đơn vị của các dòng theo tên chuẩn (P.Cải tiến + Phòng Cải tiến → 1); tên không chuẩn hóa được giữ nguyên
-      const joinUnits = (lines) => Array.from(new Set((lines || []).map((l) => String(l.unit || '').trim()).filter(Boolean).map((u) => Logic.normalizeUnit(u) || u))).join('; ');
+      // Khối chữ ký phiếu đề nghị: gọi Logic.signaturesFor (kết hợp bộ mặc định + bộ riêng của phòng ban từ danh mục Người ký / print_mapping)
+      const signCtx = { mapping: m, signers: boot.catalogs.signers, aliases: M.name_aliases };
+      const signaturesFor = (unit, requester) => Logic.signaturesFor(unit, requester, signCtx);
       const withStt = (lines) => lines.map((l, i) => Object.assign({}, l, {
         _stt: i + 1, material_group: Logic.normalizeMaterialGroup(l.material_group, boot.catalogs.material_groups), amount: l.unit_price === null || l.unit_price === undefined ? null : Logic.amount(l),
       }));
-      const joinLineField = (lines, f) => Array.from(new Set((lines || []).map((l) => String(l[f] || '').trim()).filter(Boolean))).join('; ');
+      const joinLineField = (lines, f) => Array.from(new Set((lines || []).map((l) => {
+        const raw = String(l[f] || '').trim();
+        return f === 'unit' ? (Logic.normalizeUnit(raw) || raw) : raw;
+      }).filter(Boolean))).join('; ');
 
       // Chuẩn bị dữ liệu cho từng mẫu
       const PREPARE = {
@@ -153,7 +168,7 @@
             const saved = x.request.header_json || {};
             // Lấy ưu tiên từ các dòng vật tư hiện tại để khi sửa bổ sung Đơn vị đề xuất / Người yêu cầu / Hạng mục sau khi xuất phiếu thì in lại cập nhật ngay
             const header = Object.assign({}, saved, {
-              unit: joinUnits(x.lines) || saved.unit || '',
+              unit: joinLineField(x.lines, 'unit') || saved.unit || '',
               project_code: joinLineField(x.lines, 'project_code') || saved.project_code || '',
               project_name: joinLineField(x.lines, 'project_name') || saved.project_name || '',
               delivery_location: joinLineField(x.lines, 'delivery_location') || saved.delivery_location || '',
@@ -191,7 +206,7 @@
             const pCode = joinLineField(x.lines, 'project_code') || h.project_code || '';
             const pName = joinLineField(x.lines, 'project_name') || h.project_name || '';
             return {
-              _stt: i + 1, code: x.request.code, unit: joinUnits(x.lines) || h.unit || '', line_count: x.lines.length,
+              _stt: i + 1, code: x.request.code, unit: joinLineField(x.lines, 'unit') || h.unit || '', line_count: x.lines.length,
               project: [pCode, pName].filter(Boolean).join(' — '),
               issued_date: String(x.request.issued_at || '').slice(0, 10),
             };
@@ -233,7 +248,7 @@
         };
         draw();
         await document.fonts.ready;
-        await Promise.all(Array.from(out.querySelectorAll('img'), img => img.decode().catch(() => {})));
+        await Promise.all(Array.from(out.querySelectorAll('img'), img => img.decode().catch(() => { })));
         if (version !== renderVersion) return;
         // Đo với cùng chiều rộng, font và khoảng cách như PDF. Dòng chỉ được
         // chuyển sang trang sau; không tách trang chỉ có một dòng.
@@ -251,16 +266,23 @@
               const footerSpace = footer ? footer.getBoundingClientRect().height + 12 : 0;
               const limit = parseFloat(style.minHeight) - parseFloat(style.paddingBottom) - footerSpace - 2;
               const flow = Array.from(sheet.children).filter(el => el !== footer);
-              const bottom = Math.max(...flow.map(el => el.getBoundingClientRect().bottom - top));
+              let bottom = Math.max(...flow.map(el => el.getBoundingClientRect().bottom - top));
+              if (bottom > limit && sheet.classList.contains('pdn') && sheet.querySelector('.signs')) {
+                // Thử thu gọn nhẹ khoảng đệm ô & khoảng cách chữ ký để giữ trọn các dòng + chữ ký trong 1 trang
+                sheet.style.setProperty('--sign-gap', '14mm');
+                sheet.style.setProperty('--cp', '0.4mm');
+                bottom = Math.max(...flow.map(el => el.getBoundingClientRect().bottom - top));
+                if (bottom > limit) {
+                  sheet.style.removeProperty('--sign-gap');
+                  sheet.style.removeProperty('--cp');
+                }
+              }
               if (bottom <= limit || doc.pages[p].length < 2) continue;
               const rows = Array.from(sheet.querySelectorAll('.items tbody tr'));
               // Khi tách, chữ ký chuyển sang trang cuối. Trang hiện tại chỉ
               // cần dành chỗ cho số trang, không giữ khoảng trống chữ ký nữa.
               const fitting = rows.filter(row => row.getBoundingClientRect().bottom - top <= limit).length;
-              // Giữ tối thiểu 3 dòng cùng chữ ký nếu đủ dữ liệu, tránh một
-              // trang cuối chỉ có 1 dòng khi phần chữ ký không còn vừa.
-              const tail = tpl === 'phieu_de_nghi' && p === doc.pages.length - 1 && doc.pages[p].length >= 6 ? 3 : 1;
-              const cut = Math.max(1, Math.min(fitting, doc.pages[p].length - tail));
+              const cut = Math.max(1, Math.min(fitting, doc.pages[p].length - 1));
               const overflow = doc.pages[p].splice(cut);
               if (doc.pages[p + 1] && overflow.length + doc.pages[p + 1].length <= n) {
                 doc.pages[p + 1].unshift(...overflow);
@@ -274,8 +296,7 @@
           }
           if (split) draw();
         } while (split);
-        // Giãn đều các dòng để tận dụng giấy. Trang cuối chỉ tăng tối đa 12px
-        // mỗi dòng, tránh kéo một phiếu ít vật tư thành các ô quá cao.
+        // Giãn nhẹ các dòng (tối đa 10px mỗi dòng) để bảng cân đối, không kéo thành các ô quá cao.
         out.querySelectorAll('.sheet.pdn').forEach(sheet => {
           const style = getComputedStyle(sheet);
           const top = sheet.getBoundingClientRect().top;
@@ -285,7 +306,8 @@
           const flow = Array.from(sheet.children).filter(el => el !== footer);
           const bottom = Math.max(...flow.map(el => el.getBoundingClientRect().bottom - top));
           const rows = Array.from(sheet.querySelectorAll('.items tbody tr'));
-          const extra = Math.min(Math.max(0, limit - bottom) / rows.length, sheet.querySelector('.signs') ? 12 : Infinity);
+          if (!rows.length) return;
+          const extra = Math.min(Math.max(0, limit - bottom) / rows.length, 10);
           const heights = rows.map(row => row.getBoundingClientRect().height);
           rows.forEach((row, i) => { row.style.height = (heights[i] + extra) + 'px'; });
         });
@@ -301,4 +323,5 @@
     })();
   </script>
 </body>
+
 </html>

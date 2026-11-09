@@ -663,6 +663,7 @@ test('project.html và lines.js chuẩn hóa mã hạng mục ^[Mm][Ss]\\d+$ kh�
       },
       setData: async () => {},
       getData: () => [],
+      getRow: () => null,
       getDataCount: () => 0,
       getSelectedRows: () => [],
       getColumns: () => [],
